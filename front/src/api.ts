@@ -181,14 +181,32 @@ export const api = {
   login: (username: string, password: string) =>
     post<User>('/auth/login', { username, password }),
 
-  createPromise: (data: {
+  createPromise: async (data: {
     school_id: string;
     title: string;
     description?: string;
     source?: string;
     deadline?: string;
-    amount?: number;
     type?: string;
     checklist?: string[];
-  }) => post<{ id: string }>('/promises', data),
+    photos?: File[];
+  }) => {
+    const fd = new FormData();
+    fd.append('school_id', data.school_id);
+    fd.append('title', data.title);
+    if (data.description) fd.append('description', data.description);
+    fd.append('source', data.source || 'Народный');
+    if (data.deadline) fd.append('deadline', data.deadline);
+    fd.append('type', data.type || 'consumable');
+    fd.append('checklist', JSON.stringify(data.checklist || []));
+    if (data.photos) {
+      for (const photo of data.photos) fd.append('photos', photo);
+    }
+    const res = await fetch(`${BASE}/promises`, { method: 'POST', body: fd });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Ошибка ${res.status}`);
+    }
+    return res.json();
+  },
 };

@@ -8,7 +8,8 @@ import {
   MapPin, Camera as CameraIcon, Info, Calendar,
   AlertTriangle, Activity, Clock, Star, Filter, Map,
   ClipboardList, Building2, Wifi, Wrench, BookOpen, Share2,
-  Plus, Trash2, FileText, Settings, LogOut
+  Plus, Trash2, FileText, Settings, LogOut, Eye,
+  ClipboardCheck, Hammer, CheckCheck, Ban
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
@@ -16,7 +17,7 @@ import 'leaflet/dist/leaflet.css';
 import { api, School, District, User, SchoolMapItem, Stats, SchoolPromise, TaskSchool } from './api';
 import L from 'leaflet';
 
-type View = 'tasks' | 'dashboard' | 'school' | 'capture' | 'inspection' | 'profile' | 'create';
+type View = 'tasks' | 'dashboard' | 'school' | 'promise' | 'capture' | 'inspection' | 'profile' | 'create';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -70,6 +71,7 @@ export default function App() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [tasksKey, setTasksKey] = useState(0);
   const [activePromiseId, setActivePromiseId] = useState<string | undefined>(undefined);
+  const [selectedPromise, setSelectedPromise] = useState<SchoolPromise | null>(null);
 
   if (!user) {
     return <AuthPage onLogin={u => setUser(u)} />;
@@ -207,6 +209,16 @@ export default function App() {
                 key="s"
                 school={selectedSchool}
                 onBack={() => setView('dashboard')}
+                onPromiseClick={p => { setSelectedPromise(p); setView('promise'); }}
+                onInspect={pid => { setActivePromiseId(pid); setView('inspection'); }}
+              />
+            )}
+            {view === 'promise' && selectedSchool && selectedPromise && (
+              <PromiseDetailView
+                key={`pd-${selectedPromise.id}`}
+                promise={selectedPromise}
+                school={selectedSchool}
+                onBack={() => setView('school')}
                 onInspect={pid => { setActivePromiseId(pid); setView('inspection'); }}
               />
             )}
@@ -1021,16 +1033,22 @@ function val(n: number) { return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : Strin
 
 // ─── SCHOOL DETAIL ────────────────────────────────────────────────────────────
 
-function SchoolView({ school, onBack, onInspect }: {
-  school: School; onBack: () => void; onInspect: (pid?: string) => void;
+function SchoolView({ school, onBack, onPromiseClick, onInspect }: {
+  school: School; onBack: () => void; onPromiseClick: (p: SchoolPromise) => void; onInspect: (pid?: string) => void;
 }) {
   const [tab, setTab] = useState<'promises' | 'checks' | 'analytics'>('promises');
-  const [selectedPromise, setSelectedPromise] = useState<SchoolPromise | null>(null);
 
   const capturePercent = [0, 33, 66, 100][school.capture_level] ?? 0;
   const trustScore = Math.min(5.0, 3.8 + school.promises.filter(p => p.status === 'resolved').length * 0.08);
 
-  const PROMISE_ICONS = ['🔧', '📦', '🏗️', '💡', '🖥️', '🏃', '📚', '🌊', '⚡', '🔬'];
+  const PROMISE_ICONS: Record<string, React.ReactNode> = {
+    pending:      <Clock size={20} color="#16a34a" />,
+    'in-progress': <Hammer size={20} color="#16a34a" />,
+    resolved:     <CheckCheck size={20} color="#16a34a" />,
+    waiting:      <Eye size={20} color="#16a34a" />,
+    confirmed:    <ClipboardCheck size={20} color="#16a34a" />,
+    ignored:      <Ban size={20} color="#16a34a" />,
+  };
   const FUNNEL_LABEL: Record<string, string>  = { pending: 'ОЖИДАНИЕ', 'in-progress': 'В РАБОТЕ', resolved: 'СДЕЛАНО', waiting: 'ЖДЁТ ПРОВЕРКИ', confirmed: 'ПОДТВЕРЖДЕНО', ignored: 'ИГНОРИРУЕТСЯ' };
   const FUNNEL_COLOR: Record<string, string>  = { pending: '#f59e0b', 'in-progress': '#38bdf8', resolved: '#4ade80', waiting: '#facc15', confirmed: '#7cee2b', ignored: '#ef4444' };
   const FUNNEL_PCT:   Record<string, number>  = { pending: 20, 'in-progress': 40, resolved: 60, waiting: 80, confirmed: 100, ignored: 0 };
@@ -1047,109 +1065,91 @@ function SchoolView({ school, onBack, onInspect }: {
 
   return (
     <FadeIn>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {/* Breadcrumb */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-          <span style={{ color: '#7cee2b', fontWeight: 700, cursor: 'pointer' }} onClick={onBack}>Школы</span>
+          <span style={{ color: '#16a34a', fontWeight: 700, cursor: 'pointer' }} onClick={onBack}>← Школы</span>
           <ChevronRight size={13} color="#cbd5e1" />
-          <span style={{ color: '#0d1b2e', fontWeight: 600 }}>{school.name_ru}</span>
+          <span style={{ color: '#64748b', fontWeight: 500 }}>{school.name_ru}</span>
         </div>
 
         {/* Hero card */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'stretch', flexWrap: 'wrap' }}>
-
-            {/* School photo */}
-            <div style={{ width: 160, minHeight: 130, flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
+        <div style={{
+          background: 'linear-gradient(135deg, #d4fbb0 0%, #e8fcd8 55%, #f4fef0 100%)',
+          borderRadius: 24, overflow: 'hidden',
+          border: '1.5px solid #bbf7d0', position: 'relative',
+        }}>
+          <div style={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'rgba(124,238,43,0.13)', pointerEvents: 'none' }} />
+          <div className="school-hero-row">
+            {/* Photo */}
+            <div className="school-hero-img">
               <img
-                src={`https://picsum.photos/seed/sch${school.uid ?? school.id}/320/240`}
+                src={`https://picsum.photos/seed/sch${school.uid ?? school.id}/400/300`}
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                 alt={school.name_ru}
               />
             </div>
 
             {/* Info */}
-            <div style={{ flex: 1, padding: '18px 20px', minWidth: 180 }}>
-              <h2 style={{ fontSize: 17, fontWeight: 900, color: '#0d1b2e', marginBottom: 5, lineHeight: 1.25 }}>
-                {school.name_ru}
-              </h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#64748b', marginBottom: 10 }}>
-                <MapPin size={12} color="#94a3b8" />
-                ID: SCH-{String(school.uid ?? school.id).slice(0, 4).toUpperCase()} | {school.district}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, padding: '22px 24px', minWidth: 0, position: 'relative', zIndex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 {statusBadge(school.status)}
-                <span style={{ fontSize: 10, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <Clock size={10} /> Updated 2 hours ago
+                <span style={{ fontSize: 11, color: '#4b7a5e', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <MapPin size={11} color="#4b7a5e" /> {school.district}
                 </span>
               </div>
 
+              <h2 style={{ fontSize: 18, fontWeight: 900, color: '#14532d', lineHeight: 1.3, marginBottom: 14 }}>
+                {school.name_ru}
+              </h2>
+
               {/* Infra chips */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
+              <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                 {[
-                  { label: '👥 ' + school.students, title: 'учеников' },
-                  { label: '📅 ' + (school.year_built || '—'), title: 'год' },
-                  { label: school.gym?.includes('Нет') ? '❌ Спортзал' : '✅ Спортзал', title: '' },
-                  { label: school.internet?.includes('Нет') ? '❌ Инет' : '✅ Инет', title: '' },
+                  { icon: <Users size={11} color="#16a34a" />, label: `${school.students} уч.` },
+                  { icon: <Calendar size={11} color="#16a34a" />, label: school.year_built || '—' },
+                  { icon: <span style={{ fontSize: 11 }}>{school.gym?.includes('Нет') ? '❌' : '✅'}</span>, label: 'Спортзал' },
+                  { icon: <Wifi size={11} color="#16a34a" />, label: school.internet?.includes('Нет') ? 'Нет инет.' : 'Интернет' },
                 ].map((c, i) => (
                   <span key={i} style={{
-                    fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
-                    background: '#f8fafc', color: '#475569', border: '1px solid #f1f5f9'
-                  }}>{c.label}</span>
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    fontSize: 11, fontWeight: 600, padding: '5px 11px', borderRadius: 20,
+                    background: 'rgba(255,255,255,0.85)', color: '#166534',
+                    border: '1px solid #bbf7d0', backdropFilter: 'blur(4px)',
+                  }}>{c.icon}{c.label}</span>
                 ))}
               </div>
-            </div>
-
-            {/* Capture status */}
-            <div style={{
-              padding: '18px 20px', borderLeft: '1.5px solid #f1f5f9',
-              minWidth: 170, flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Capture Status</span>
-                <span style={{ fontSize: 14, fontWeight: 900, color: '#7cee2b' }}>{capturePercent}%</span>
-              </div>
-              <div className="progress-track" style={{ height: 8, marginBottom: 6 }}>
-                <div className="progress-fill" style={{ width: `${capturePercent}%`, background: 'linear-gradient(90deg, #7cee2b, #4ade80)' }} />
-              </div>
-              <div style={{ fontSize: 9, color: '#94a3b8', marginBottom: 14 }}>GOAL: 100% DATA COMPLETION FOR Q4</div>
-              <button className="btn btn-primary btn-shine" style={{ justifyContent: 'center', width: '100%' }} onClick={() => onInspect(undefined)}>
-                <CameraIcon size={14} /> Проверить
-              </button>
             </div>
           </div>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '2px solid #f1f5f9', gap: 0 }}>
+        <div style={{ display: 'flex', borderBottom: '2px solid #e8f5e9', gap: 0 }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id as any)} style={{
               padding: '10px 18px', background: 'none', border: 'none', cursor: 'pointer',
               fontSize: 13, fontWeight: 700,
-              color: tab === t.id ? '#7cee2b' : '#64748b',
+              color: tab === t.id ? '#16a34a' : '#94a3b8',
               borderBottom: `2.5px solid ${tab === t.id ? '#7cee2b' : 'transparent'}`,
-              marginBottom: -2, whiteSpace: 'nowrap'
+              marginBottom: -2, whiteSpace: 'nowrap', transition: 'color 0.15s',
             }}>{t.label}</button>
           ))}
         </div>
 
         {/* TAB: Promises */}
         {tab === 'promises' && (
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div className="school-main-grid">
 
             {/* Left: promise cards */}
-            <div style={{ flex: 1, minWidth: 280, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                <span style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2e' }}>Facility Promises</span>
-                <button className="btn btn-primary btn-sm btn-shine" onClick={() => onInspect(undefined)}>
-                  + Новое обращение
-                </button>
-              </div>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
 
               {school.promises.length === 0 && (
-                <div className="card" style={{ textAlign: 'center', padding: 32, color: '#94a3b8', fontSize: 13 }}>
-                  Нет обращений по этой школе
+                <div style={{
+                  textAlign: 'center', padding: '40px 24px', borderRadius: 20,
+                  background: '#f0fdf4', border: '1.5px dashed #bbf7d0', color: '#64748b', fontSize: 13,
+                }}>
+                  Обращений по этой школе пока нет
                 </div>
               )}
 
@@ -1162,26 +1162,21 @@ function SchoolView({ school, onBack, onInspect }: {
 
                 return (
                   <div key={p.id} className="card" style={{ padding: '16px 18px', cursor: 'pointer' }}
-                    onClick={() => setSelectedPromise(p)}>
+                    onClick={() => onPromiseClick(p)}>
                     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+
+                      {/* Status icon */}
                       <div style={{
-                        width: 42, height: 42, borderRadius: 12, flexShrink: 0,
-                        background: '#f0fdf4',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20
-                      }}>{PROMISE_ICONS[i % PROMISE_ICONS.length]}</div>
+                        width: 44, height: 44, borderRadius: 13, flexShrink: 0,
+                        background: 'linear-gradient(135deg, #d4fbb0 0%, #e8fcd8 100%)',
+                        border: '1.5px solid #bbf7d0',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>{PROMISE_ICONS[p.status] ?? <ClipboardList size={20} color="#16a34a" />}</div>
 
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: '#0d1b2e', lineHeight: 1.3 }}>{p.title}</div>
-                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                            <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600 }}>Contract Amount</div>
-                            <div style={{ fontSize: 14, fontWeight: 900, color: '#0d1b2e' }}>
-                              {p.amount > 0 ? `${(p.amount / 1_000_000).toFixed(1)}M сум` : '—'}
-                            </div>
-                          </div>
-                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#0d1b2e', lineHeight: 1.3, marginBottom: 7 }}>{p.title}</div>
 
-                        <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
+                        <div style={{ display: 'flex', gap: 5, marginBottom: 9, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: typeTag.bg, color: typeTag.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                             {typeTag.label}
                           </span>
@@ -1190,20 +1185,35 @@ function SchoolView({ school, onBack, onInspect }: {
                             color: sourceIsEtender ? '#1d4ed8' : '#be185d',
                             textTransform: 'uppercase', letterSpacing: '0.04em'
                           }}>{p.source}</span>
+                          <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 4,
+                            background: 'rgba(124,238,43,0.12)', color: '#15803d',
+                            textTransform: 'uppercase', letterSpacing: '0.04em',
+                            border: '1px solid rgba(124,238,43,0.25)',
+                          }}>{funnelLabel}</span>
                         </div>
 
-                        <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.07em', marginBottom: 6 }}>
-                          FUNNEL STATUS: <span style={{ color: funnelColor }}>{funnelLabel}</span>
-                          <span style={{ marginLeft: 8, color: '#cbd5e1' }}>{funnelPct}%</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 3 }}>
+                        <div style={{ display: 'flex', gap: 3, marginBottom: 10 }}>
                           {[20, 40, 60, 80, 100].map(step => (
                             <div key={step} style={{
-                              flex: 1, height: 5, borderRadius: 3,
-                              background: funnelPct >= step ? funnelColor : '#f1f5f9'
+                              flex: 1, height: 4, borderRadius: 3,
+                              background: funnelPct >= step ? '#7cee2b' : '#f1f5f9'
                             }} />
                           ))}
                         </div>
+
+                        <button
+                          className="btn-shine"
+                          style={{
+                            padding: '7px 16px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                            fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+                            background: 'linear-gradient(135deg, #7cee2b 0%, #5bc91e 100%)',
+                            color: '#182210',
+                            boxShadow: '0 2px 8px rgba(124,238,43,0.3)',
+                          }}
+                          onClick={e => { e.stopPropagation(); onPromiseClick(p); }}
+                        >
+                          Проверить
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1211,38 +1221,39 @@ function SchoolView({ school, onBack, onInspect }: {
               })}
             </div>
 
-            {/* Right: checks + trust + map */}
-            <div style={{ width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Right sidebar */}
+            <div className="school-sidebar">
 
               {/* Recent Checks */}
-              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 10px', borderBottom: '1.5px solid #f1f5f9' }}>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: '#0d1b2e' }}>Recent Checks</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#7cee2b', cursor: 'pointer' }}>VIEW ALL</span>
+              <div style={{ borderRadius: 20, overflow: 'hidden', border: '1.5px solid #e8f5e9', background: '#fff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px 12px', borderBottom: '1px solid #f0fdf4' }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: '#14532d' }}>Последние проверки</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#16a34a', cursor: 'pointer', background: '#f0fdf4', padding: '3px 8px', borderRadius: 8 }}>ВСЕ</span>
                 </div>
                 {(school.inspections as any[]).length === 0 ? (
-                  <div style={{ padding: '20px 16px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
-                    Проверок нет. Будь первым!
+                  <div style={{ padding: '24px 16px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+                    Проверок нет — будь первым!
                   </div>
                 ) : (
                   (school.inspections as any[]).slice(0, 3).map((ins: any, i: number) => (
-                    <div key={i} style={{ padding: '12px 16px', borderBottom: i < 2 ? '1px solid #f8fafc' : 'none' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: ins.comment ? 6 : 0 }}>
+                    <div key={i} style={{ padding: '12px 16px', borderBottom: i < 2 ? '1px solid #f8fffe' : 'none' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{
-                          width: 32, height: 32, borderRadius: 50,
-                          background: '#f0fdf4', flexShrink: 0,
+                          width: 34, height: 34, borderRadius: 50, flexShrink: 0,
+                          background: 'linear-gradient(135deg, #d4fbb0, #e8fcd8)',
+                          border: '1.5px solid #bbf7d0',
                           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15
                         }}>👤</div>
-                        <div style={{ flex: 1 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2e' }}>{ins.user_id ?? 'Гражданин'}</div>
                           <div style={{ fontSize: 10, color: '#94a3b8' }}>
                             {ins.created_at ? new Date(ins.created_at).toLocaleDateString('ru-RU') : '—'}
                           </div>
                         </div>
-                        <div style={{ width: 8, height: 8, borderRadius: 50, background: ins.camera_validated ? '#7cee2b' : '#cbd5e1' }} />
+                        <div style={{ width: 8, height: 8, borderRadius: 50, background: ins.camera_validated ? '#7cee2b' : '#e2e8f0', flexShrink: 0 }} />
                       </div>
                       {ins.comment && (
-                        <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.45, fontStyle: 'italic', paddingLeft: 40 }}>
+                        <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.45, fontStyle: 'italic', marginTop: 6, paddingLeft: 42 }}>
                           "{ins.comment}"
                         </div>
                       )}
@@ -1251,20 +1262,29 @@ function SchoolView({ school, onBack, onInspect }: {
                 )}
               </div>
 
-              {/* Community Trust Score */}
-              <div style={{ background: '#f0fdf4', borderRadius: 16, padding: '16px 18px', border: '1.5px solid #dcfce7' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 6 }}>Community Trust Score</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 5 }}>
-                  <span style={{ fontSize: 34, fontWeight: 900, color: '#0d1b2e' }}>{trustScore.toFixed(1)}</span>
-                  <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 600 }}>/ 5.0</span>
+              {/* Trust Score */}
+              <div style={{
+                borderRadius: 20, padding: '18px 20px',
+                background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+                border: '1.5px solid #bbf7d0',
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#166534', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Рейтинг доверия</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: 40, fontWeight: 900, color: '#14532d', lineHeight: 1 }}>{trustScore.toFixed(1)}</span>
+                  <span style={{ fontSize: 15, color: '#86efac', fontWeight: 700 }}>/ 5.0</span>
                 </div>
-                <div style={{ fontSize: 11, color: '#166534' }}>
-                  Based on {school.promises.length * 12} crowd-sourced verifications this month.
+                <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
+                  {[1,2,3,4,5].map(s => (
+                    <div key={s} style={{ flex: 1, height: 4, borderRadius: 4, background: s <= Math.round(trustScore) ? '#7cee2b' : '#d1fae5' }} />
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: '#4b7a5e' }}>
+                  По данным {school.promises.length * 12} проверок сообщества
                 </div>
               </div>
 
               {/* Mini map */}
-              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ borderRadius: 20, overflow: 'hidden', border: '1.5px solid #e8f5e9' }}>
                 <MapContainer
                   center={[school.lat, school.lng]} zoom={15}
                   style={{ height: 160, width: '100%' }}
@@ -1273,8 +1293,8 @@ function SchoolView({ school, onBack, onInspect }: {
                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                   <Marker position={[school.lat, school.lng]} icon={schoolIcon(school.status)} />
                 </MapContainer>
-                <div style={{ padding: '8px 12px', fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <MapPin size={10} /> {school.lat.toFixed(4)}, {school.lng.toFixed(4)}
+                <div style={{ padding: '9px 13px', fontSize: 11, color: '#4b7a5e', display: 'flex', alignItems: 'center', gap: 4, background: '#f0fdf4' }}>
+                  <MapPin size={11} color="#16a34a" /> {school.lat.toFixed(4)}, {school.lng.toFixed(4)}
                 </div>
               </div>
             </div>
@@ -1283,7 +1303,10 @@ function SchoolView({ school, onBack, onInspect }: {
 
         {/* TAB: Checks */}
         {tab === 'checks' && (
-          <div className="card" style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>
+          <div style={{
+            textAlign: 'center', padding: '48px 24px', borderRadius: 20,
+            background: '#f0fdf4', border: '1.5px dashed #bbf7d0', color: '#4b7a5e', fontSize: 13,
+          }}>
             История всех проверок появится здесь
           </div>
         )}
@@ -1292,14 +1315,14 @@ function SchoolView({ school, onBack, onInspect }: {
         {tab === 'analytics' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
             {[
-              { label: 'Выполнено',    val: school.promises.filter(p => p.status === 'resolved').length,    color: '#7cee2b', bg: '#f0fdf4' },
-              { label: 'В работе',     val: school.promises.filter(p => p.status === 'in-progress').length, color: '#3b82f6', bg: '#eff6ff' },
-              { label: 'Ожидает',      val: school.promises.filter(p => p.status === 'pending').length,     color: '#f59e0b', bg: '#fffbeb' },
-              { label: 'Игнорируется', val: school.promises.filter(p => p.status === 'ignored').length,     color: '#ef4444', bg: '#fef2f2' },
+              { label: 'Выполнено',    val: school.promises.filter(p => p.status === 'resolved').length,    color: '#16a34a', bg: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', border: '#bbf7d0' },
+              { label: 'В работе',     val: school.promises.filter(p => p.status === 'in-progress').length, color: '#2563eb', bg: 'linear-gradient(135deg,#eff6ff,#dbeafe)', border: '#bfdbfe' },
+              { label: 'Ожидает',      val: school.promises.filter(p => p.status === 'pending').length,     color: '#d97706', bg: 'linear-gradient(135deg,#fffbeb,#fef3c7)', border: '#fde68a' },
+              { label: 'Игнорируется', val: school.promises.filter(p => p.status === 'ignored').length,     color: '#dc2626', bg: 'linear-gradient(135deg,#fef2f2,#fee2e2)', border: '#fecaca' },
             ].map(item => (
-              <div key={item.label} style={{ background: item.bg, borderRadius: 16, padding: '22px 20px', border: `1.5px solid ${item.color}30` }}>
-                <div style={{ fontSize: 38, fontWeight: 900, color: item.color, lineHeight: 1 }}>{item.val}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginTop: 6 }}>{item.label}</div>
+              <div key={item.label} style={{ background: item.bg, borderRadius: 20, padding: '22px 20px', border: `1.5px solid ${item.border}` }}>
+                <div style={{ fontSize: 42, fontWeight: 900, color: item.color, lineHeight: 1 }}>{item.val}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginTop: 8 }}>{item.label}</div>
               </div>
             ))}
           </div>
@@ -1307,144 +1330,297 @@ function SchoolView({ school, onBack, onInspect }: {
 
       </div>
 
-      {/* ── Promise Timeline Modal ── */}
-      {selectedPromise && (() => {
-        const STEPS = [
-          { title: 'Создана',         desc: 'Обращение зарегистрировано в системе', icon: '📋' },
-          { title: 'Гос. одобрило',   desc: 'Государственный орган подтвердил обращение', icon: '🏛️' },
-          { title: 'Сделано',         desc: 'Работы завершены подрядчиком', icon: '🔨' },
-          { title: 'Ждёт проверки',   desc: 'Ожидает проверки гражданами', icon: '👁️' },
-          { title: 'Проверено',       desc: 'Подтверждено гражданским сообществом', icon: '✅' },
-        ];
-        const activeStep = { pending: 0, 'in-progress': 1, resolved: 2, waiting: 3, confirmed: 4, ignored: 0 }[selectedPromise.status] ?? 0;
+    </FadeIn>
+  );
+}
 
-        return ReactDOM.createPortal(
-          <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(13,27,46,0.55)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, backdropFilter: 'blur(6px)' }}
-            onClick={() => setSelectedPromise(null)}
-          >
-            <div
-              style={{ background: '#f8fafc', borderRadius: 24, width: '100%', maxWidth: 460, maxHeight: '88vh', overflowY: 'auto', position: 'relative' }}
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div style={{ padding: '20px 20px 14px', borderBottom: '1.5px solid #f1f5f9' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                      {school.name_ru}
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 900, color: '#0d1b2e', lineHeight: 1.3 }}>{selectedPromise.title}</div>
-                    <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {promiseStatusBadge(selectedPromise.status)}
-                      {selectedPromise.amount > 0 && (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#0d1b2e', background: '#f1f5f9', padding: '2px 8px', borderRadius: 6 }}>
-                          {(selectedPromise.amount / 1_000_000).toFixed(1)}M сум
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <button onClick={() => setSelectedPromise(null)} style={{
-                    width: 34, height: 34, borderRadius: 50, border: 'none',
-                    background: '#f1f5f9', cursor: 'pointer', flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+// ─── PROMISE DETAIL ───────────────────────────────────────────────────────────
+
+const PROMISE_STEPS = [
+  {
+    id: 'pending',
+    label: 'Создана',
+    Icon: ClipboardList,
+    desc: 'Обращение зарегистрировано в системе',
+    detail: 'Гражданское обращение принято платформой. Оно будет рассмотрено государственными органами.',
+  },
+  {
+    id: 'in-progress',
+    label: 'Одобрено',
+    Icon: Building2,
+    desc: 'Государственный орган подтвердил',
+    detail: 'Ответственное ведомство приняло обращение к исполнению. Работы запланированы.',
+  },
+  {
+    id: 'resolved',
+    label: 'Выполнено',
+    Icon: CheckCheck,
+    desc: 'Работы завершены подрядчиком',
+    detail: 'По данным подрядчика, все работы по данному обращению завершены.',
+  },
+  {
+    id: 'waiting',
+    label: 'Проверка',
+    Icon: Eye,
+    desc: 'Ожидает гражданской проверки',
+    detail: 'Необходима независимая проверка гражданами. Сделайте фото и подтвердите выполнение работ.',
+  },
+  {
+    id: 'confirmed',
+    label: 'Подтверждено',
+    Icon: ClipboardCheck,
+    desc: 'Подтверждено сообществом',
+    detail: 'Граждане подтвердили выполнение обещания. Обращение закрыто.',
+  },
+];
+
+const STEP_ORDER: Record<string, number> = {
+  pending: 0, 'in-progress': 1, resolved: 2, waiting: 3, confirmed: 4, ignored: 0,
+};
+
+function PromiseDetailView({ promise, school, onBack, onInspect }: {
+  promise: SchoolPromise;
+  school: School;
+  onBack: () => void;
+  onInspect: (pid?: string) => void;
+}) {
+  const currentIdx = STEP_ORDER[promise.status] ?? 0;
+  const [activeIdx, setActiveIdx] = useState(currentIdx);
+  const activeStep = PROMISE_STEPS[activeIdx];
+  const isViewingCurrent = activeIdx === currentIdx;
+
+  const checklist: string[] = Array.isArray(promise.checklist) ? promise.checklist : [];
+  const photos: string[] = (promise as any).photos ?? [];
+
+  return (
+    <FadeIn>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: 720, margin: '0 auto' }}>
+
+        {/* Dark hero header */}
+        <div style={{
+          background: 'linear-gradient(135deg, #0d1b2e 0%, #1a2f4a 60%, #0f2540 100%)',
+          borderRadius: 24, padding: '24px 24px 28px',
+          position: 'relative', overflow: 'hidden', marginBottom: 16,
+        }}>
+          {/* Decorative circles */}
+          <div style={{ position: 'absolute', top: -40, right: -40, width: 180, height: 180, borderRadius: '50%', background: 'rgba(124,238,43,0.07)', pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', bottom: -30, left: '30%', width: 120, height: 120, borderRadius: '50%', background: 'rgba(124,238,43,0.05)', pointerEvents: 'none' }} />
+
+          {/* Breadcrumb */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16, position: 'relative', zIndex: 1 }}>
+            <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', color: '#94a3b8', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
+              ← Назад
+            </button>
+            <ChevronRight size={12} color="#334155" />
+            <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>{school.name_ru}</span>
+          </div>
+
+          {/* Title + meta */}
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <h1 style={{ fontSize: 20, fontWeight: 900, color: '#fff', lineHeight: 1.3, marginBottom: 12 }}>
+              {promise.title}
+            </h1>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {promiseStatusBadge(promise.status)}
+              {promise.deadline && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#94a3b8', background: 'rgba(255,255,255,0.07)', padding: '4px 10px', borderRadius: 8 }}>
+                  <Calendar size={11} color="#94a3b8" /> {new Date(promise.deadline).toLocaleDateString('ru-RU')}
+                </span>
+              )}
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: 'rgba(255,255,255,0.05)', padding: '4px 10px', borderRadius: 8 }}>
+                {promise.source}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Horizontal stepper */}
+        <div style={{
+          background: '#fff', borderRadius: 20, padding: '20px 20px 0',
+          border: '1.5px solid #e8f5e9', marginBottom: 16, overflow: 'hidden',
+        }}>
+          {/* Steps row */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', position: 'relative', paddingBottom: 0 }}>
+            {PROMISE_STEPS.map((step, i) => {
+              const isDone   = i < currentIdx;
+              const isActive = i === activeIdx;
+              const isCurrent = i === currentIdx;
+              const isFuture  = i > currentIdx;
+
+              return (
+                <div
+                  key={step.id}
+                  style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: isFuture ? 'default' : 'pointer', position: 'relative' }}
+                  onClick={() => !isFuture && setActiveIdx(i)}
+                >
+                  {/* Connector line */}
+                  {i > 0 && (
+                    <div style={{
+                      position: 'absolute', top: 20, right: '50%', left: '-50%',
+                      height: 3, borderRadius: 2,
+                      background: i <= currentIdx ? 'linear-gradient(90deg, #7cee2b, #5bc91e)' : '#e8f5e9',
+                      zIndex: 0,
+                    }} />
+                  )}
+
+                  {/* Circle */}
+                  <div style={{
+                    width: 40, height: 40, borderRadius: '50%', flexShrink: 0, zIndex: 1,
+                    background: isDone ? 'linear-gradient(135deg, #7cee2b, #5bc91e)'
+                      : isCurrent ? 'linear-gradient(135deg, #0d1b2e, #1a2f4a)'
+                      : '#f1f5f9',
+                    border: isActive ? '3px solid #7cee2b' : isDone ? '3px solid #5bc91e' : '2px solid #e2e8f0',
+                    boxShadow: isActive ? '0 0 0 4px rgba(124,238,43,0.2)' : 'none',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.2s',
+                    color: isDone ? '#182210' : isCurrent ? '#7cee2b' : '#94a3b8',
                   }}>
-                    <X size={16} color="#64748b" />
-                  </button>
+                    {isDone ? <CheckCheck size={16} color="#182210" /> : <step.Icon size={16} />}
+                  </div>
+
+                  {/* Label */}
+                  <div style={{
+                    fontSize: 10, fontWeight: isActive ? 800 : 600, marginTop: 6, textAlign: 'center',
+                    color: isActive ? '#0d1b2e' : isDone ? '#16a34a' : isFuture ? '#cbd5e1' : '#64748b',
+                    lineHeight: 1.3, paddingBottom: 16, paddingLeft: 4, paddingRight: 4,
+                  }}>{step.label}</div>
+
+                  {/* Active underline */}
+                  {isActive && (
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg,#7cee2b,#5bc91e)', borderRadius: '2px 2px 0 0' }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Step content card */}
+        <div style={{
+          background: '#fff', borderRadius: 20, border: '1.5px solid #e8f5e9',
+          overflow: 'hidden', marginBottom: 16,
+        }}>
+          {/* Step header */}
+          <div style={{
+            background: activeIdx === currentIdx
+              ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'
+              : activeIdx < currentIdx
+              ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'
+              : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+            padding: '18px 22px',
+            borderBottom: '1px solid #e8f5e9',
+            display: 'flex', alignItems: 'center', gap: 14,
+          }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: 14, flexShrink: 0,
+              background: activeIdx <= currentIdx ? 'linear-gradient(135deg, #0d1b2e, #1e3a5f)' : '#f1f5f9',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: activeIdx <= currentIdx ? '#7cee2b' : '#94a3b8',
+            }}>
+              <activeStep.Icon size={22} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 900, color: '#14532d', marginBottom: 3 }}>{activeStep.label}</div>
+              <div style={{ fontSize: 12, color: '#4b7a5e' }}>{activeStep.desc}</div>
+            </div>
+            {activeIdx === currentIdx && (
+              <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: 'linear-gradient(135deg,#0d1b2e,#1a2f4a)', padding: '4px 9px', borderRadius: 8, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>
+                ТЕКУЩИЙ
+              </span>
+            )}
+            {activeIdx < currentIdx && (
+              <span style={{ fontSize: 9, fontWeight: 800, color: '#16a34a', background: 'rgba(124,238,43,0.15)', padding: '4px 9px', borderRadius: 8, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0, border: '1px solid rgba(124,238,43,0.3)' }}>
+                ВЫПОЛНЕН
+              </span>
+            )}
+          </div>
+
+          {/* Step body */}
+          <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {/* Description */}
+            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.7, margin: 0 }}>
+              {activeStep.detail}
+            </p>
+
+            {/* Promise description (step 0 only) */}
+            {activeIdx === 0 && promise.description && (
+              <div style={{ background: '#f8fafc', borderRadius: 14, padding: '14px 16px', border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Описание</div>
+                <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.65, margin: 0 }}>{promise.description}</p>
+              </div>
+            )}
+
+            {/* Checklist (step 0 only) */}
+            {activeIdx === 0 && checklist.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>Чеклист ({checklist.length} пунктов)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {checklist.map((item, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 12, background: '#f0fdf4', border: '1px solid #d1fae5' }}>
+                      <div style={{ width: 18, height: 18, borderRadius: 5, background: 'linear-gradient(135deg,#7cee2b,#5bc91e)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                        <span style={{ fontSize: 10, fontWeight: 900, color: '#182210' }}>{i + 1}</span>
+                      </div>
+                      <span style={{ fontSize: 13, color: '#374151', lineHeight: 1.5 }}>{item}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
 
-              {/* Timeline */}
-              <div style={{ padding: '28px 20px 20px', position: 'relative' }}>
-                {/* Vertical center line */}
-                <div style={{
-                  position: 'absolute', left: '50%', top: 28, bottom: 40,
-                  width: 2, background: '#e2e8f0', transform: 'translateX(-50%)', zIndex: 0
-                }} />
-
-                {STEPS.map((step, i) => {
-                  const isDone   = i < activeStep;
-                  const isActive = i === activeStep;
-                  const isRight  = i % 2 === 0; // card on right side
-
-                  const cardStyle: React.CSSProperties = {
-                    background: '#fff',
-                    borderRadius: 14,
-                    padding: '12px 14px',
-                    border: `1.5px solid ${isActive ? '#7cee2b' : isDone ? '#f1f5f9' : '#f1f5f9'}`,
-                    boxShadow: isActive ? '0 4px 20px rgba(124,238,43,0.15)' : '0 1px 4px rgba(0,0,0,0.04)',
-                    opacity: !isDone && !isActive ? 0.45 : 1,
-                    flex: 1,
-                  };
-
-                  const card = (
-                    <div style={cardStyle}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 12, fontWeight: 800, color: '#0d1b2e' }}>{step.title}</span>
-                        {isActive && (
-                          <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: '#7cee2b', padding: '1px 6px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            ACTIVE
-                          </span>
-                        )}
-                        {isDone && (
-                          <span style={{ fontSize: 9, fontWeight: 700, color: '#7cee2b' }}>Completed</span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.4 }}>{step.desc}</div>
-                      {isActive && selectedPromise.deadline && (
-                        <div style={{ fontSize: 10, color: '#f97316', fontWeight: 700, marginTop: 5 }}>
-                          До {new Date(selectedPromise.deadline).toLocaleDateString('ru-RU')}
-                        </div>
-                      )}
-                    </div>
-                  );
-
-                  const circleColor = isDone || isActive ? '#7cee2b' : '#fff';
-                  const circleBorder = isDone || isActive ? '#4ade80' : '#e2e8f0';
-
-                  return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', marginBottom: i < STEPS.length - 1 ? 20 : 0, position: 'relative', zIndex: 1 }}>
-                      {/* Left side */}
-                      <div style={{ flex: 1, paddingRight: 14 }}>
-                        {!isRight ? card : null}
-                      </div>
-
-                      {/* Center circle */}
-                      <div style={{
-                        width: 44, height: 44, borderRadius: 50, flexShrink: 0,
-                        background: circleColor,
-                        border: `2.5px solid ${circleBorder}`,
-                        boxShadow: isActive ? '0 0 0 5px rgba(124,238,43,0.18)' : 'none',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 20, zIndex: 2, position: 'relative'
-                      }}>
-                        {step.icon}
-                      </div>
-
-                      {/* Right side */}
-                      <div style={{ flex: 1, paddingLeft: 14 }}>
-                        {isRight ? card : null}
-                      </div>
-                    </div>
-                  );
-                })}
+            {/* Photos */}
+            {photos.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>Фото ({photos.length})</div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {photos.map((url, i) => (
+                    <img key={i} src={`http://localhost:8001${url}`} alt={`Фото ${i + 1}`} style={{ width: 100, height: 80, objectFit: 'cover', borderRadius: 12, border: '1.5px solid #e8f5e9' }} />
+                  ))}
+                </div>
               </div>
+            )}
 
-              {/* Footer CTA */}
-              <div style={{ padding: '0 20px 20px' }}>
+            {/* Inspection CTA (on waiting step, if it's the current step) */}
+            {activeIdx === 3 && isViewingCurrent && (
+              <div style={{
+                background: 'linear-gradient(135deg, #0d1b2e 0%, #1a2f4a 100%)',
+                borderRadius: 16, padding: '20px', display: 'flex', flexDirection: 'column', gap: 14,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 13, background: 'rgba(124,238,43,0.12)', border: '1px solid rgba(124,238,43,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <CameraIcon size={20} color="#7cee2b" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', marginBottom: 3 }}>Требуется ваша проверка</div>
+                    <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>Сфотографируйте результат и подтвердите выполнение работ</div>
+                  </div>
+                </div>
                 <button
-                  className="btn btn-primary btn-shine"
-                  style={{ width: '100%', justifyContent: 'center' }}
-                  onClick={() => { setSelectedPromise(null); onInspect(selectedPromise.id); }}
+                  className="btn-shine"
+                  style={{
+                    padding: '13px', borderRadius: 13, border: 'none', cursor: 'pointer',
+                    fontFamily: 'inherit', fontSize: 14, fontWeight: 800,
+                    background: 'linear-gradient(135deg, #7cee2b 0%, #5bc91e 100%)',
+                    color: '#182210', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    boxShadow: '0 4px 16px rgba(124,238,43,0.35)',
+                  }}
+                  onClick={() => onInspect(promise.id)}
                 >
-                  <CameraIcon size={15} /> Проверить это обращение
+                  <CameraIcon size={16} /> Открыть камеру и проверить
                 </button>
               </div>
-            </div>
-          </div>,
-          document.body
-        );
-      })()}
+            )}
+
+            {/* Deadline */}
+            {promise.deadline && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
+                <Calendar size={13} color="#94a3b8" />
+                Срок: <span style={{ fontWeight: 700, color: '#374151' }}>{new Date(promise.deadline).toLocaleDateString('ru-RU')}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+      </div>
     </FadeIn>
   );
 }
@@ -2034,8 +2210,9 @@ function CreatePromiseView({ user, onSuccess }: { user: User; onSuccess: () => v
   const [schoolQuery, setSchoolQuery] = useState('');
   const [schoolResults, setSchoolResults] = useState<School[]>([]);
   const [selectedSchool, setSelectedSchool] = useState<School | null>(null);
-  const [form, setForm] = useState({ title: '', description: '', amount: '', deadline: '' });
+  const [form, setForm] = useState({ title: '', description: '', deadline: '' });
   const [checklist, setChecklist] = useState<string[]>(['']);
+  const [photos, setPhotos] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
@@ -2063,9 +2240,9 @@ function CreatePromiseView({ user, onSuccess }: { user: User; onSuccess: () => v
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         source: 'Народный',
-        amount: form.amount ? parseInt(form.amount) : undefined,
         deadline: form.deadline || undefined,
         checklist: checklist.filter(c => c.trim()),
+        photos,
       });
       setDone(true);
     } catch (e: any) {
@@ -2076,72 +2253,97 @@ function CreatePromiseView({ user, onSuccess }: { user: User; onSuccess: () => v
   };
 
   const inp: React.CSSProperties = {
-    width: '100%', padding: '13px 14px', border: '1.5px solid #e8ecf0',
-    borderRadius: 14, fontSize: 14, color: '#0d1b2e', background: '#fff',
+    width: '100%', padding: '13px 16px', border: '1.5px solid #e8ecf0',
+    borderRadius: 14, fontSize: 14, color: '#0d1b2e', background: '#fafbfc',
     outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
-    transition: 'border-color 0.15s',
+    transition: 'border-color 0.15s, background 0.15s',
   };
   const lbl: React.CSSProperties = {
     fontSize: 11, fontWeight: 800, color: '#64748b',
     textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 7, display: 'block',
   };
 
-  const STEPS = ['Школа', 'Детали', 'Чеклист'];
+  const STEPS = [
+    { label: 'Школа', icon: '🏫' },
+    { label: 'Детали', icon: '📋' },
+    { label: 'Чеклист', icon: '✅' },
+  ];
 
   /* ── Success screen ── */
   if (done) return (
     <FadeIn>
-      <div style={{ maxWidth: 440, margin: '32px auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, padding: '0 16px' }}>
-        <div style={{ background: '#0d1b2e', borderRadius: 24, padding: '40px 32px', textAlign: 'center', width: '100%', marginBottom: 14 }}>
-          <div style={{ width: 72, height: 72, borderRadius: 50, background: 'rgba(124,238,43,0.15)', border: '2px solid rgba(124,238,43,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 34 }}>✅</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: '#fff', marginBottom: 8 }}>Обращение создано!</div>
-          <div style={{ fontSize: 13, color: '#5c7a9a', lineHeight: 1.5 }}>
-            Обращение по школе <span style={{ color: '#7cee2b', fontWeight: 700 }}>{selectedSchool?.name_ru}</span> зарегистрировано и передано на рассмотрение.
+      <div className="promise-success-wrap">
+        <div className="promise-success-card">
+          <div className="promise-success-blob" />
+          <div className="promise-success-icon">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
+          <div className="promise-success-title">Обращение создано!</div>
+          <div className="promise-success-sub">
+            Обращение по школе <span className="promise-success-school">{selectedSchool?.name_ru}</span> зарегистрировано и будет рассмотрено.
+          </div>
+          <button className="btn-shine promise-success-btn" onClick={onSuccess}>
+            Вернуться к проверкам
+          </button>
         </div>
-        <button className="btn btn-primary btn-shine" style={{ width: '100%', justifyContent: 'center', padding: '14px' }} onClick={onSuccess}>
-          На главную
-        </button>
       </div>
     </FadeIn>
   );
 
   return (
     <FadeIn>
-      <div style={{ maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-        {/* Page header */}
-        <div style={{ background: '#0d1b2e', borderRadius: 20, padding: '20px 20px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 46, height: 46, borderRadius: 14, background: '#7cee2b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <FileText size={22} color="#182210" />
+        {/* Hero header */}
+        <div style={{
+          background: 'linear-gradient(135deg, #d4fbb0 0%, #e8fcd8 60%, #f0fef4 100%)',
+          borderRadius: 24, padding: '24px 24px 22px',
+          display: 'flex', alignItems: 'center', gap: 16, position: 'relative', overflow: 'hidden',
+          border: '1.5px solid #bbf7d0',
+        }}>
+          <div style={{
+            position: 'absolute', top: -30, right: -30, width: 130, height: 130,
+            borderRadius: '50%', background: 'rgba(124,238,43,0.15)',
+          }} />
+          <div style={{
+            width: 52, height: 52, borderRadius: 16, flexShrink: 0,
+            background: 'linear-gradient(135deg, #7cee2b, #5bc91e)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 4px 16px rgba(124,238,43,0.35)',
+          }}>
+            <FileText size={24} color="#182210" />
           </div>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 900, color: '#fff', lineHeight: 1.2 }}>Новое обращение</div>
-            <div style={{ fontSize: 12, color: '#5c7a9a', marginTop: 3 }}>Источник: <span style={{ color: '#7cee2b', fontWeight: 700 }}>👥 Народный</span></div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: '#0d1b2e', lineHeight: 1.2 }}>Новое обращение</div>
+            <div style={{ fontSize: 12, color: '#4a7c3f', marginTop: 4 }}>
+              Источник: <span style={{ color: '#16a34a', fontWeight: 700 }}>👥 Народный контроль</span>
+            </div>
           </div>
         </div>
 
         {/* Steps indicator */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, padding: '4px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '2px 4px' }}>
           {STEPS.map((s, i) => {
             const isActive = i + 1 === step;
             const isDone   = i + 1 < step;
             return (
-              <React.Fragment key={s}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, flex: 'none' }}>
+              <React.Fragment key={s.label}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flex: 'none' }}>
                   <div style={{
-                    width: 32, height: 32, borderRadius: 50, fontWeight: 900, fontSize: 13,
-                    background: isDone ? '#7cee2b' : isActive ? '#0d1b2e' : '#f1f5f9',
-                    color: isDone ? '#182210' : isActive ? '#7cee2b' : '#94a3b8',
-                    border: `2px solid ${isDone ? '#4ade80' : isActive ? '#7cee2b' : '#e2e8f0'}`,
+                    width: 38, height: 38, borderRadius: '50%', fontWeight: 900, fontSize: 15,
+                    background: '#fff',
+                    color: '#16a34a',
+                    border: `2px solid ${isActive ? '#7cee2b' : isDone ? '#4ade80' : '#e2e8f0'}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: isActive ? '0 0 0 4px rgba(124,238,43,0.15)' : 'none',
+                    transition: 'all 0.2s',
                   }}>
-                    {isDone ? <CheckCircle2 size={16} /> : i + 1}
+                    {i + 1}
                   </div>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? '#0d1b2e' : '#94a3b8', whiteSpace: 'nowrap' }}>{s}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? '#0d1b2e' : '#94a3b8', whiteSpace: 'nowrap' }}>{s.label}</span>
                 </div>
                 {i < STEPS.length - 1 && (
-                  <div style={{ flex: 1, height: 2, background: isDone ? '#7cee2b' : '#f1f5f9', borderRadius: 2, marginTop: 15, marginBottom: 22, minWidth: 20 }} />
+                  <div style={{ flex: 1, height: 2, background: isDone ? '#7cee2b' : '#e8ecf0', borderRadius: 2, marginBottom: 22, minWidth: 24, transition: 'background 0.3s' }} />
                 )}
               </React.Fragment>
             );
@@ -2150,31 +2352,33 @@ function CreatePromiseView({ user, onSuccess }: { user: User; onSuccess: () => v
 
         {/* ── STEP 1: School ── */}
         {step === 1 && (
-          <div className="card" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ fontSize: 16, fontWeight: 900, color: '#0d1b2e' }}>Выберите школу</div>
+          <div style={{ background: '#fff', borderRadius: 20, border: '1.5px solid #e8ecf0', padding: '24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 900, color: '#0d1b2e', marginBottom: 4 }}>Выберите школу</div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>Введите название или район — найдём в базе</div>
+            </div>
 
             <div style={{ position: 'relative' }}>
-              <label style={lbl}>Название или район</label>
+              <label style={lbl}>Поиск школы</label>
               <div style={{ position: 'relative' }}>
-                <Search size={14} style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }} />
+                <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }} />
                 <input
-                  style={{ ...inp, paddingLeft: 38 }}
-                  placeholder="Например: школа №42, Чиланзар…"
+                  style={{ ...inp, paddingLeft: 42 }}
+                  placeholder="Школа №42, Чиланзар…"
                   value={schoolQuery}
                   onChange={e => handleSchoolSearch(e.target.value)}
                 />
               </div>
-
               {schoolResults.length > 0 && !selectedSchool && (
                 <div style={{
                   position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50,
-                  background: '#fff', borderRadius: 16, boxShadow: '0 8px 32px rgba(13,27,46,0.13)',
-                  border: '1.5px solid #f1f5f9', overflow: 'hidden', maxHeight: 240, overflowY: 'auto',
+                  background: '#fff', borderRadius: 16, boxShadow: '0 12px 40px rgba(13,27,46,0.14)',
+                  border: '1.5px solid #e8ecf0', overflow: 'hidden', maxHeight: 260, overflowY: 'auto',
                 }}>
                   {schoolResults.map(s => (
                     <button key={s.id}
                       onClick={() => { setSelectedSchool(s); setSchoolQuery(s.name_ru); setSchoolResults([]); }}
-                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '12px 16px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderBottom: '1px solid #f8fafc' }}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '13px 16px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderBottom: '1px solid #f8fafc' }}
                       onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
@@ -2187,38 +2391,49 @@ function CreatePromiseView({ user, onSuccess }: { user: User; onSuccess: () => v
             </div>
 
             {selectedSchool && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px', background: '#f0fdf4', borderRadius: 14, border: '1.5px solid #bbf7d0' }}>
-                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>🏫</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px', background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', borderRadius: 16, border: '1.5px solid #bbf7d0' }}>
+                <div style={{ width: 44, height: 44, borderRadius: 14, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>🏫</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: '#0d1b2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedSchool.name_ru}</div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{selectedSchool.district} · {selectedSchool.oblast}</div>
+                  <div style={{ fontSize: 11, color: '#16a34a', marginTop: 2, fontWeight: 600 }}>{selectedSchool.district} · {selectedSchool.oblast}</div>
                 </div>
-                <CheckCircle2 size={20} color="#16a34a" />
+                <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.07)' }}>
+                  <CheckCircle2 size={18} color="#16a34a" />
+                </div>
               </div>
             )}
 
-            {error && <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700 }}>{error}</div>}
+            {error && <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700, padding: '8px 12px', background: '#fef2f2', borderRadius: 10 }}>{error}</div>}
 
-            <button className="btn btn-primary btn-shine"
-              style={{ justifyContent: 'center', padding: '14px', opacity: selectedSchool ? 1 : 0.45 }}
+            <button className="btn-shine"
+              style={{
+                width: '100%', padding: '14px', borderRadius: 14, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                background: 'linear-gradient(135deg, #7cee2b 0%, #5bc91e 100%)',
+                color: '#182210', fontWeight: 800, fontSize: 14,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                boxShadow: '0 4px 16px rgba(124,238,43,0.35)', opacity: selectedSchool ? 1 : 0.4,
+              }}
               disabled={!selectedSchool}
               onClick={() => { setError(''); setStep(2); }}
             >
-              Далее →
+              Далее <ChevronRight size={16} />
             </button>
           </div>
         )}
 
         {/* ── STEP 2: Details ── */}
         {step === 2 && (
-          <div className="card" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Selected school banner */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#f0fdf4', borderRadius: 12, border: '1.5px solid #bbf7d0', marginBottom: 2 }}>
+          <div style={{ background: '#fff', borderRadius: 20, border: '1.5px solid #e8ecf0', padding: '24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: '#f0fdf4', borderRadius: 14, border: '1.5px solid #bbf7d0' }}>
               <span style={{ fontSize: 16 }}>🏫</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#166534', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedSchool?.name_ru}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#166534', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{selectedSchool?.name_ru}</span>
+              <button onClick={() => setStep(1)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#16a34a', fontWeight: 700, padding: 0, fontFamily: 'inherit', flexShrink: 0 }}>Изменить</button>
             </div>
 
-            <div style={{ fontSize: 16, fontWeight: 900, color: '#0d1b2e', marginBottom: 2 }}>Детали обращения</div>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 900, color: '#0d1b2e', marginBottom: 4 }}>Детали обращения</div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>Опишите что нужно проверить или исправить</div>
+            </div>
 
             <div>
               <label style={lbl}>Название <span style={{ color: '#ef4444' }}>*</span></label>
@@ -2228,55 +2443,124 @@ function CreatePromiseView({ user, onSuccess }: { user: User; onSuccess: () => v
 
             <div>
               <label style={lbl}>Описание</label>
-              <textarea style={{ ...inp, minHeight: 90, resize: 'vertical' }}
+              <textarea style={{ ...inp, minHeight: 100, resize: 'vertical' } as React.CSSProperties}
                 placeholder="Подробно опишите проблему — что сломано, где, как давно…"
                 value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label style={lbl}>Сумма (сум)</label>
-                <input style={inp} type="number" placeholder="необязательно"
-                  value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
-              </div>
-              <div>
-                <label style={lbl}>Дедлайн</label>
-                <input style={inp} type="date"
-                  value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} />
-              </div>
+            <div>
+              <label style={lbl}>Срок исполнения</label>
+              <input style={inp} type="date"
+                value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} />
             </div>
 
-            {error && <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700 }}>{error}</div>}
+            {/* Photo upload — optional */}
+            <div>
+              <label style={lbl}>
+                Фото <span style={{ color: '#94a3b8', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>— необязательно</span>
+              </label>
+              <input
+                id="photo-upload"
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const files = Array.from(e.target.files || []);
+                  setPhotos(prev => [...prev, ...files].slice(0, 3));
+                  e.target.value = '';
+                }}
+              />
+              <label htmlFor="photo-upload" style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px',
+                background: '#f8fafc', border: '1.5px dashed #d1d5db', borderRadius: 14,
+                cursor: 'pointer', transition: 'all 0.15s',
+              }}
+                onMouseEnter={e => { (e.currentTarget.style.background = '#f0fdf4'); (e.currentTarget.style.borderColor = '#bbf7d0'); }}
+                onMouseLeave={e => { (e.currentTarget.style.background = '#f8fafc'); (e.currentTarget.style.borderColor = '#d1d5db'); }}
+              >
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#e8ecf0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <CameraIcon size={16} color="#64748b" />
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2e' }}>
+                    {photos.length > 0 ? `${photos.length} фото выбрано` : 'Прикрепить фото'}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>До 3 фотографий · JPG, PNG</div>
+                </div>
+              </label>
+              {photos.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  {photos.map((f, i) => (
+                    <div key={i} style={{ position: 'relative' }}>
+                      <img
+                        src={URL.createObjectURL(f)}
+                        alt=""
+                        style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', border: '1.5px solid #e2e8f0' }}
+                      />
+                      <button
+                        onClick={() => setPhotos(p => p.filter((_, idx) => idx !== i))}
+                        style={{
+                          position: 'absolute', top: -6, right: -6, width: 20, height: 20,
+                          borderRadius: '50%', background: '#ef4444', border: '2px solid #fff',
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        <X size={10} color="#fff" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {error && <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700, padding: '8px 12px', background: '#fef2f2', borderRadius: 10 }}>{error}</div>}
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setStep(1)}>← Назад</button>
-              <button className="btn btn-primary btn-shine"
-                style={{ flex: 2, justifyContent: 'center', opacity: form.title.trim() ? 1 : 0.45 }}
+              <button className="btn btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 14 }} onClick={() => setStep(1)}>← Назад</button>
+              <button className="btn-shine"
+                style={{
+                  flex: 2, padding: '14px', borderRadius: 14, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                  background: 'linear-gradient(135deg, #7cee2b 0%, #5bc91e 100%)',
+                  color: '#182210', fontWeight: 800, fontSize: 14,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  boxShadow: '0 4px 16px rgba(124,238,43,0.35)', opacity: form.title.trim() ? 1 : 0.4,
+                }}
                 disabled={!form.title.trim()}
                 onClick={() => { setError(''); setStep(3); }}
-              >Далее →</button>
+              >Далее <ChevronRight size={16} /></button>
             </div>
           </div>
         )}
 
         {/* ── STEP 3: Checklist ── */}
         {step === 3 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="card" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ background: '#fff', borderRadius: 20, border: '1.5px solid #e8ecf0', padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 900, color: '#0d1b2e', marginBottom: 4 }}>Чеклист проверки</div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: '#0d1b2e', marginBottom: 4 }}>Чеклист проверки</div>
                 <div style={{ fontSize: 12, color: '#94a3b8' }}>Что граждане будут проверять на месте</div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {checklist.map((item, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <div style={{ width: 26, height: 26, borderRadius: 8, background: '#f0fdf4', border: '1.5px solid #bbf7d0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, color: '#16a34a', flexShrink: 0 }}>{i + 1}</div>
-                    <input style={{ ...inp, flex: 1, padding: '10px 12px' }}
+                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <div style={{
+                      width: 30, height: 30, borderRadius: 10, flexShrink: 0,
+                      background: item.trim() ? '#f0fdf4' : '#f8fafc',
+                      border: `1.5px solid ${item.trim() ? '#bbf7d0' : '#e2e8f0'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 900, color: item.trim() ? '#16a34a' : '#94a3b8',
+                      transition: 'all 0.15s',
+                    }}>{i + 1}</div>
+                    <input style={{ ...inp, flex: 1, padding: '11px 14px' }}
                       placeholder={`Пункт ${i + 1}…`} value={item}
                       onChange={e => updateCheckItem(i, e.target.value)} />
                     {checklist.length > 1 && (
-                      <button onClick={() => removeCheckItem(i)} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <button onClick={() => removeCheckItem(i)} style={{ background: '#fef2f2', border: 'none', borderRadius: 10, width: 38, height: 38, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.15s' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#fee2e2')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '#fef2f2')}
+                      >
                         <Trash2 size={14} color="#ef4444" />
                       </button>
                     )}
@@ -2284,39 +2568,32 @@ function CreatePromiseView({ user, onSuccess }: { user: User; onSuccess: () => v
                 ))}
               </div>
 
-              <button onClick={addCheckItem} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f0fdf4', border: '1.5px dashed #bbf7d0', borderRadius: 12, padding: '10px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#16a34a', fontFamily: 'inherit' }}>
-                <Plus size={14} /> Добавить пункт
+              <button onClick={addCheckItem} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: '#f8fafc', border: '1.5px dashed #d1d5db',
+                borderRadius: 14, padding: '12px 16px', cursor: 'pointer',
+                fontSize: 13, fontWeight: 700, color: '#64748b', fontFamily: 'inherit',
+                transition: 'all 0.15s',
+              }}
+                onMouseEnter={e => { (e.currentTarget.style.background = '#f0fdf4'); (e.currentTarget.style.borderColor = '#bbf7d0'); (e.currentTarget.style.color = '#16a34a'); }}
+                onMouseLeave={e => { (e.currentTarget.style.background = '#f8fafc'); (e.currentTarget.style.borderColor = '#d1d5db'); (e.currentTarget.style.color = '#64748b'); }}
+              >
+                <Plus size={15} /> Добавить пункт
               </button>
             </div>
 
-            {/* Summary dark card */}
-            <div style={{ background: '#0d1b2e', borderRadius: 18, padding: '18px 20px' }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: '#5c7a9a', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 10 }}>Итог</div>
-              <div style={{ fontSize: 15, fontWeight: 900, color: '#fff', marginBottom: 5, lineHeight: 1.3 }}>{form.title}</div>
-              <div style={{ fontSize: 12, color: '#5c7a9a', marginBottom: 10 }}>🏫 {selectedSchool?.name_ru}</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: 'rgba(124,238,43,0.12)', color: '#7cee2b', border: '1px solid rgba(124,238,43,0.2)' }}>
-                  👥 Народный
-                </span>
-                {checklist.filter(c => c.trim()).length > 0 && (
-                  <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: 'rgba(124,238,43,0.12)', color: '#7cee2b', border: '1px solid rgba(124,238,43,0.2)' }}>
-                    {checklist.filter(c => c.trim()).length} пунктов чеклиста
-                  </span>
-                )}
-                {form.deadline && (
-                  <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: 'rgba(124,238,43,0.12)', color: '#7cee2b', border: '1px solid rgba(124,238,43,0.2)' }}>
-                    📅 {new Date(form.deadline).toLocaleDateString('ru-RU')}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {error && <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700, padding: '0 4px' }}>{error}</div>}
+{error && <div style={{ fontSize: 12, color: '#ef4444', fontWeight: 700, padding: '8px 12px', background: '#fef2f2', borderRadius: 10 }}>{error}</div>}
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setStep(2)}>← Назад</button>
-              <button className="btn btn-primary btn-shine"
-                style={{ flex: 2, justifyContent: 'center', padding: '14px', opacity: submitting ? 0.65 : 1 }}
+              <button className="btn btn-secondary" style={{ flex: 1, justifyContent: 'center', borderRadius: 14 }} onClick={() => setStep(2)}>← Назад</button>
+              <button className="btn-shine"
+                style={{
+                  flex: 2, padding: '14px', borderRadius: 14, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                  background: 'linear-gradient(135deg, #7cee2b 0%, #5bc91e 100%)',
+                  color: '#182210', fontWeight: 800, fontSize: 14,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  boxShadow: '0 4px 16px rgba(124,238,43,0.35)', opacity: submitting ? 0.65 : 1,
+                }}
                 disabled={submitting} onClick={handleSubmit}
               >
                 {submitting ? 'Отправка…' : <><CheckCircle2 size={16} /> Создать обращение</>}

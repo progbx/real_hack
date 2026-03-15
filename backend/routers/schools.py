@@ -110,7 +110,7 @@ def task_schools(limit: int = Query(1000, le=5000), offset: int = 0, source: Opt
             JOIN promises p ON p.school_id = s.id
             WHERE {' AND '.join(where)}
             GROUP BY s.id
-            ORDER BY BOOL_OR(p.deadline < CURRENT_DATE) DESC, MIN(p.deadline) ASC
+            ORDER BY MAX(p.created_at) DESC
             LIMIT %s OFFSET %s
         """
         params.extend([limit, offset])
