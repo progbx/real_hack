@@ -1,0 +1,8 @@
+{
+  "name": "REAL HOLAT",
+  "description": "Экосистема общественного контроля школ Узбекистана: мониторинг тендеров, гражданские инспекции и геймификация.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

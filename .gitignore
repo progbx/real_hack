@@ -1,0 +1,14 @@
+backend/__pycache__/
+backend/routers/__pycache__/
+backend/realholat.db
+*.pyc
+*.pyo
+node_modules/
+front/dist/
+front/node_modules/
+*.xlsx_preview.txt
+oblasts.txt
+backend/.env
+front/.env
+front/.env.local
+.claude/
