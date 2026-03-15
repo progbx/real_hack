@@ -45,8 +45,8 @@ def create_promise(data: PromiseCreate):
         import json
         promise_id = str(uuid.uuid4())
         cur.execute("""
-            INSERT INTO promises (id, school_id, title, description, source, deadline, amount, type, checklist)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO promises (id, school_id, title, description, source, deadline, amount, type, checklist, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'waiting')
             RETURNING *
         """, (promise_id, data.school_id, data.title, data.description, data.source,
               data.deadline, data.amount, data.type, json.dumps(data.checklist)))
@@ -55,7 +55,7 @@ def create_promise(data: PromiseCreate):
 
 @router.patch("/{promise_id}/status")
 def update_status(promise_id: str, status: str):
-    valid = {"pending", "in-progress", "resolved", "ignored"}
+    valid = {"pending", "in-progress", "resolved", "waiting", "confirmed", "ignored"}
     if status not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid status. Choose from: {valid}")
     with get_db() as conn:

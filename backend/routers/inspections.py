@@ -1,33 +1,47 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Form, UploadFile, File
 from typing import Optional
 from database import get_db
 from datetime import datetime, timedelta
-import uuid, random, json
+import uuid, random, json, os
 
 router = APIRouter(prefix="/inspections", tags=["inspections"])
 
-
-class InspectionCreate(BaseModel):
-    school_id: str
-    promise_id: Optional[str] = None
-    user_id: str = "demo_user"
-    checklist_answers: dict = {}
-    comment: Optional[str] = None
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads", "inspections")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.post("")
-def submit_inspection(data: InspectionCreate):
+async def submit_inspection(
+    school_id: str = Form(...),
+    user_id: str = Form("demo_user"),
+    promise_id: Optional[str] = Form(None),
+    checklist_answers: str = Form("{}"),
+    comment: Optional[str] = Form(None),
+    photos: list[UploadFile] = File(default=[]),
+):
     """Submit a new inspection (photo + checklist)."""
+    answers_dict = json.loads(checklist_answers)
+
+    # Save uploaded photos
+    photo_paths = []
+    for photo in photos:
+        ext = os.path.splitext(photo.filename or "photo.jpg")[1] or ".jpg"
+        fname = f"{uuid.uuid4()}{ext}"
+        fpath = os.path.join(UPLOAD_DIR, fname)
+        content = await photo.read()
+        with open(fpath, "wb") as f:
+            f.write(content)
+        photo_paths.append(f"/uploads/inspections/{fname}")
+
     with get_db() as conn:
         cur = conn.cursor()
 
-        cur.execute("SELECT * FROM schools WHERE id = %s", (data.school_id,))
+        cur.execute("SELECT * FROM schools WHERE id = %s", (school_id,))
         school = cur.fetchone()
         if not school:
             raise HTTPException(status_code=404, detail="School not found")
 
-        cur.execute("SELECT * FROM users WHERE id = %s", (data.user_id,))
+        cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
         user = cur.fetchone()
         streak = user["streak"] if user else 1
 
@@ -55,8 +69,8 @@ def submit_inspection(data: InspectionCreate):
             VALUES (%s, %s, %s, %s, %s, %s, 'processing', %s, %s)
             RETURNING *
         """, (
-            inspection_id, data.school_id, data.promise_id, data.user_id,
-            json.dumps(data.checklist_answers), data.comment, points, publish_at
+            inspection_id, school_id, promise_id, user_id,
+            json.dumps(answers_dict), comment, points, publish_at
         ))
         inspection = dict(cur.fetchone())
 
@@ -79,15 +93,22 @@ def submit_inspection(data: InspectionCreate):
                     points_total = points_total + %s,
                     xp = %s, level = %s, xp_next = %s
                 WHERE id = %s
-            """, (new_streak, max_streak, points, points, new_xp, new_level, xp_next, data.user_id))
+            """, (new_streak, max_streak, points, points, new_xp, new_level, xp_next, user_id))
+
+        # Advance promise status: waiting (ждёт проверки) → confirmed
+        if promise_id:
+            cur.execute("""
+                UPDATE promises SET status = 'confirmed'
+                WHERE id = %s AND status = 'waiting'
+            """, (promise_id,))
 
         # Update school capture level
         s = dict(school)
         new_capture = min(3, s["capture_level"] + 1)
-        cur.execute("UPDATE schools SET capture_level = %s WHERE id = %s", (new_capture, data.school_id))
+        cur.execute("UPDATE schools SET capture_level = %s WHERE id = %s", (new_capture, school_id))
 
         return {
-            "inspection": inspection,
+            "inspection": {**inspection, "photos": photo_paths},
             "feedback": {
                 "points_awarded": points,
                 "streak_multiplier": streak_mult,

@@ -6,11 +6,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:444bbb@localhost:5432/realholat")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
+DB_PORT = os.getenv("DB_PORT", "5433")
+DB_NAME = os.getenv("DB_NAME", "realholat")
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
 
 def get_connection():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    if DATABASE_URL:
+        return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    kwargs = dict(host=DB_HOST, port=DB_PORT, dbname=DB_NAME, user=DB_USER, cursor_factory=psycopg2.extras.RealDictCursor)
+    if DB_PASSWORD:
+        kwargs["password"] = DB_PASSWORD
+    return psycopg2.connect(**kwargs)
 
 
 @contextmanager
