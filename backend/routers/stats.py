@@ -45,11 +45,50 @@ def global_stats():
         """)
         recent_activity = [dict(r) for r in cur.fetchall()]
 
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE gym NOT ILIKE '%нет%' AND gym NOT ILIKE '%qisman%' AND gym != '') AS has_gym,
+                COUNT(*) FILTER (WHERE water NOT ILIKE '%нет%' AND water NOT ILIKE '%привоз%' AND water != '') AS has_water,
+                COUNT(*) FILTER (WHERE internet NOT ILIKE '%нет%' AND internet != '') AS has_internet,
+                COUNT(*) FILTER (WHERE cafeteria NOT ILIKE '%нет%' AND cafeteria NOT ILIKE '%ishlamaydi%' AND cafeteria != '') AS has_cafeteria,
+                COUNT(*) FILTER (WHERE electricity NOT ILIKE '%нет%' AND electricity NOT ILIKE '%частично%' AND electricity != '') AS has_electricity,
+                COUNT(*) AS total
+            FROM schools
+        """)
+        inf = dict(cur.fetchone())
+        total = inf["total"] or 1
+        infrastructure = {
+            "gym":         round(inf["has_gym"] / total * 100),
+            "water":       round(inf["has_water"] / total * 100),
+            "internet":    round(inf["has_internet"] / total * 100),
+            "cafeteria":   round(inf["has_cafeteria"] / total * 100),
+            "electricity": round(inf["has_electricity"] / total * 100),
+        }
+
+        cur.execute("""
+            SELECT status, COUNT(*) AS cnt FROM promises GROUP BY status
+        """)
+        promise_funnel = {r["status"]: r["cnt"] for r in cur.fetchall()}
+
+        cur.execute("""
+            SELECT status, COUNT(*) AS cnt FROM schools GROUP BY status
+        """)
+        school_statuses = {r["status"]: r["cnt"] for r in cur.fetchall()}
+
+        cur.execute("""
+            SELECT COUNT(*) AS total FROM promises
+        """)
+        total_promises = cur.fetchone()["total"]
+
         return {
             "total_schools": total_schools,
+            "total_promises": total_promises,
             "weekly_inspections": weekly_inspections,
             "promise_completion": promise_completion,
             "active_inspectors": active_inspectors,
             "top_problem_schools": top_schools,
             "recent_activity": recent_activity,
+            "infrastructure": infrastructure,
+            "promise_funnel": promise_funnel,
+            "school_statuses": school_statuses,
         }

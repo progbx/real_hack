@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:8000/api';
+const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api';
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
@@ -12,7 +12,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`API error ${res.status}: ${path}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Ошибка ${res.status}`);
+  }
   return res.json();
 }
 
@@ -75,15 +78,22 @@ export interface District {
 
 export interface Stats {
   total_schools: number;
+  total_promises: number;
   weekly_inspections: number;
   promise_completion: number;
   active_inspectors: number;
   top_problem_schools: { name_ru: string; district: string; status: string; open_promises: number }[];
   recent_activity: { school_id: string; name_ru: string; created_at: string }[];
+  infrastructure: { gym: number; water: number; internet: number; cafeteria: number; electricity: number };
+  promise_funnel: { pending?: number; 'in-progress'?: number; resolved?: number; ignored?: number };
+  school_statuses: { ok?: number; problem?: number; stale?: number };
 }
 
 export interface User {
   id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
   name: string;
   district: string;
   streak: number;
@@ -120,6 +130,12 @@ export const api = {
   getUser: (id = 'demo_user') =>
     get<User>(`/users/${id}`),
 
-  submitInspection: (data: { school_id: string; promise_id?: string; checklist_answers: Record<string, boolean>; comment?: string }) =>
-    post('/inspections', { ...data, user_id: 'demo_user' }),
+  submitInspection: (data: { school_id: string; promise_id?: string; checklist_answers: Record<string, boolean>; comment?: string }, userId = 'demo_user') =>
+    post('/inspections', { ...data, user_id: userId }),
+
+  signup: (username: string, first_name: string, last_name: string, password: string) =>
+    post<User>('/auth/signup', { username, first_name, last_name, password }),
+
+  login: (username: string, password: string) =>
+    post<User>('/auth/login', { username, password }),
 };

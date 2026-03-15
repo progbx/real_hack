@@ -8,3 +8,7 @@ front/dist/
 front/node_modules/
 *.xlsx_preview.txt
 oblasts.txt
+backend/.env
+front/.env
+front/.env.local
+.claude/

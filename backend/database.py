@@ -86,7 +86,11 @@ CREATE TABLE IF NOT EXISTS inspections (
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL DEFAULT '',
+    first_name TEXT NOT NULL DEFAULT '',
+    last_name TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
+    password_hash TEXT NOT NULL DEFAULT '',
     district TEXT,
     streak INTEGER DEFAULT 0,
     max_streak INTEGER DEFAULT 0,
@@ -119,8 +123,21 @@ CREATE INDEX IF NOT EXISTS idx_inspections_school ON inspections(school_id);
 """
 
 
+MIGRATIONS = [
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT UNIQUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT ''",
+]
+
+
 def init_db():
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(SCHEMA)
+        for migration in MIGRATIONS:
+            try:
+                cur.execute(migration)
+            except Exception:
+                pass
         print("Database schema initialized.")

@@ -1,8 +1,10 @@
 import express from "express";
+import https from "https";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import selfsigned from "selfsigned";
 
 dotenv.config();
 
@@ -21,17 +23,26 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Frontend running on http://localhost:${PORT}`);
-    console.log(`Backend API running on http://localhost:8000`);
-  });
+  // Generate self-signed certificate
+  const pems = selfsigned.generate(
+    [{ name: "commonName", value: "localhost" }],
+    { days: 365, algorithm: "sha256" }
+  );
+
+  https
+    .createServer({ key: pems.private, cert: pems.cert }, app)
+    .listen(PORT, "0.0.0.0", () => {
+      console.log(`Frontend running on https://localhost:${PORT}`);
+      console.log(`Open on phone:  https://172.20.10.8:${PORT}`);
+      console.log(`Backend API running on http://localhost:8000`);
+    });
 }
 
 startServer();

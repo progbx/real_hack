@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from database import init_db
-from routers import schools, promises, inspections, districts, stats, users
+from routers import schools, promises, inspections, districts, stats, users, auth
 
 load_dotenv()
 
@@ -30,6 +30,7 @@ app.include_router(inspections.router, prefix="/api")
 app.include_router(districts.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 
 
 @app.on_event("startup")
