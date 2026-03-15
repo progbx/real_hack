@@ -580,4 +580,30 @@ body {
     justify-content: center;
     transition: background 0.15s;
   }
+
+  .bnav-create-btn {
+    flex: 1;
+    align-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px !important;
+    height: 46px !important;
+    max-width: 46px !important;
+    border-radius: 50% !important;
+    border: 2px solid #0d1b2e !important;
+    background: transparent !important;
+    color: #0d1b2e !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+
+  .bnav-create-btn.active {
+    background: #7cee2b !important;
+    border-color: #7cee2b !important;
+    color: #182210 !important;
+  }
+
 }

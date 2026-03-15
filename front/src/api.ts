@@ -138,4 +138,15 @@ export const api = {
 
   login: (username: string, password: string) =>
     post<User>('/auth/login', { username, password }),
+
+  createPromise: (data: {
+    school_id: string;
+    title: string;
+    description?: string;
+    source?: string;
+    deadline?: string;
+    amount?: number;
+    type?: string;
+    checklist?: string[];
+  }) => post<{ id: string }>('/promises', data),
 };
