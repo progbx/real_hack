@@ -366,7 +366,7 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #94a3b8;
-  padding: 0 12px 12px;
+  padding: 18px 12px 12px;
   border-bottom: 1.5px solid #f1f5f9;
 }
 .data-table td {
@@ -406,6 +406,41 @@ body {
   color: #fff;
 }
 
+/* ── User location dot ─────────────────────────────────── */
+.user-loc-dot {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.user-loc-core {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 2.5px solid #fff;
+  box-shadow: 0 1px 6px rgba(37,99,235,0.5);
+  position: relative;
+  z-index: 2;
+}
+.user-loc-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(37,99,235,0.25);
+  animation: user-loc-pulse 2s ease-out infinite;
+}
+@keyframes user-loc-pulse {
+  0%   { transform: scale(0.5); opacity: 1; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 /* ── Animations ────────────────────────────────────────── */
 @keyframes pulse-ring {
   0%   { transform: scale(1); opacity: 0.6; }
@@ -443,6 +478,56 @@ body {
 }
 .btn-shine:hover::after {
   animation: shine-sweep 1.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* ── Twomod community image ─────────────────────────────── */
+.twomod-img {
+  position: absolute;
+  bottom: -10px;
+  right: -15px;
+  width: 110px;
+  height: 110px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+@media (min-width: 768px) {
+  .twomod-img {
+    width: 170px;
+    height: 170px;
+    bottom: -18px;
+    right: -8px;
+  }
+}
+
+/* ── Desktop sidebar + header gradient ─────────────────── */
+@media (min-width: 769px) {
+  .sidebar {
+    background: linear-gradient(160deg, #d4fbb0 0%, #e8fcd8 28%, #f4fef0 60%, #ffffff 100%);
+    border-right-color: #c3ebb0;
+  }
+  .sidebar-logo {
+    border-bottom-color: #c3ebb0;
+  }
+  .top-header {
+    background: linear-gradient(90deg, #e2fbc8 0%, #edfde0 40%, #f8fff4 100%);
+    border-bottom-color: #c3ebb0;
+  }
+}
+
+/* ── Profile grid ──────────────────────────────────────── */
+.profile-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  padding-bottom: 16px;
+}
+
+@media (min-width: 900px) {
+  .profile-grid {
+    grid-template-columns: 380px 1fr;
+    align-items: start;
+  }
 }
 
 /* ── Tasks subtitle ────────────────────────────────────── */
@@ -492,9 +577,10 @@ body {
 
   .map-status-pills {
     position: absolute !important;
-    bottom: 78px !important;
+    top: auto !important;
     left: 14px !important;
     right: 14px !important;
+    bottom: 84px !important;
     flex-direction: row !important;
     align-items: center !important;
     justify-content: center;
@@ -510,6 +596,11 @@ body {
   .map-status-pills button span:first-child {
     width: 6px !important;
     height: 6px !important;
+  }
+
+  .map-locate-btn {
+    bottom: 136px !important;
+    right: 14px !important;
   }
 
   .bottom-nav {

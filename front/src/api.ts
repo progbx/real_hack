@@ -91,6 +91,7 @@ export interface Stats {
 
 export interface User {
   id: string;
+  uid: number;
   username: string;
   first_name: string;
   last_name: string;

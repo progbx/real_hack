@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import AuthPage from './AuthPage';
 import {
@@ -8,7 +8,7 @@ import {
   MapPin, Camera as CameraIcon, Info, Calendar,
   AlertTriangle, Activity, Clock, Star, Filter, Map,
   ClipboardList, Building2, Wifi, Wrench, BookOpen, Share2,
-  Plus, Trash2, FileText
+  Plus, Trash2, FileText, Settings, LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
@@ -16,7 +16,7 @@ import 'leaflet/dist/leaflet.css';
 import { api, School, District, User, SchoolMapItem, Stats, SchoolPromise } from './api';
 import L from 'leaflet';
 
-type View = 'tasks' | 'dashboard' | 'rating' | 'school' | 'capture' | 'inspection' | 'profile' | 'create';
+type View = 'tasks' | 'dashboard' | 'school' | 'capture' | 'inspection' | 'profile' | 'create';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -91,7 +91,6 @@ export default function App() {
     { id: 'capture'   as View, label: 'Карта',     icon: <Map size={22} /> },
     { id: 'create'    as View, label: 'Создать',   icon: <Plus size={22} />, isCreate: true },
     { id: 'dashboard' as View, label: 'Аналитика', icon: <LayoutDashboard size={22} /> },
-    { id: 'rating'    as View, label: 'Рейтинг',  icon: <BarChart3 size={22} /> },
     { id: 'profile'   as View, label: 'Профиль',  icon: <UserIcon size={22} /> },
   ];
 
@@ -105,30 +104,14 @@ export default function App() {
         </div>
 
         {NAV.map(n => (
-          n.isCreate ? (
-            <button
-              key={n.id}
-              className={`nav-item ${view === n.id ? 'active' : ''}`}
-              onClick={() => setView(n.id)}
-              style={{
-                background: view === n.id ? '#5dc41a' : '#7cee2b',
-                color: '#182210', borderRadius: 14, margin: '4px 0',
-                border: '2px solid transparent',
-              }}
-            >
-              {n.icon}
-              <span>{n.label}</span>
-            </button>
-          ) : (
-            <button
-              key={n.id}
-              className={`nav-item ${view === n.id ? 'active' : ''}`}
-              onClick={() => setView(n.id)}
-            >
-              {n.icon}
-              <span>{n.label}</span>
-            </button>
-          )
+          <button
+            key={n.id}
+            className={`nav-item ${view === n.id ? 'active' : ''}`}
+            onClick={() => setView(n.id)}
+          >
+            {n.icon}
+            <span>{n.label}</span>
+          </button>
         ))}
 
         {/* ── Sidebar user card ── */}
@@ -136,90 +119,30 @@ export default function App() {
         <div style={{ padding: '0 0 16px' }}>
           <div
             style={{
-              background: '#f7f8f6', borderRadius: 16, padding: '12px 14px',
-              cursor: 'pointer', position: 'relative', border: '1.5px solid #e8edf2',
+              background: view === 'profile' ? '#f0fdf4' : '#f7f8f6',
+              borderRadius: 16, padding: '12px 14px',
+              cursor: 'pointer', border: `1.5px solid ${view === 'profile' ? '#86efac' : '#e8edf2'}`,
               transition: 'background 0.15s',
             }}
-            onClick={() => setShowUserMenu(v => !v)}
-            tabIndex={0}
-            onBlur={() => setTimeout(() => setShowUserMenu(false), 150)}
+            onClick={() => setView('profile')}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{
                 width: 36, height: 36, borderRadius: 10,
-                background: '#0d1b2e', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 flexShrink: 0,
               }}>
-                <UserIcon size={18} color="#fff" />
+                <UserIcon size={18} color="#94a3b8" />
               </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2e', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {user.first_name} {user.last_name}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Anonymous #{user.uid ?? '—'}
                 </div>
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>Lv. {user.level} · {user.points_total} pts</div>
+                <div style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>
+                  {user.id.slice(0, 8).toUpperCase()}
+                </div>
               </div>
             </div>
-            <button
-              onMouseDown={() => setView('inspection' as View)}
-              style={{
-                marginTop: 10, width: '100%', padding: '8px 0',
-                background: '#7cee2b', border: 'none', borderRadius: 10,
-                fontSize: 12, fontWeight: 700, color: '#182210',
-                cursor: 'pointer', fontFamily: 'inherit', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', gap: 5,
-              }}
-            >
-              <Zap size={13} /> Новая проверка
-            </button>
-
-            {showUserMenu && (
-              <div style={{
-                position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, right: 0,
-                background: '#fff', borderRadius: 14,
-                boxShadow: '0 8px 30px rgba(13,27,46,0.13)',
-                border: '1.5px solid #e2e8f0', zIndex: 200, overflow: 'hidden',
-              }}>
-                {[
-                  { label: 'Профиль', id: 'profile' as View | null },
-                  { label: 'Достижения', id: null },
-                  { label: 'Настройки', id: null },
-                  { label: 'Contact Us', id: null },
-                  { label: 'Terms & Conditions', id: null },
-                ].map((item, i) => (
-                  <button
-                    key={item.label}
-                    onMouseDown={() => { if (item.id) setView(item.id); setShowUserMenu(false); }}
-                    style={{
-                      display: 'block', width: '100%', textAlign: 'left',
-                      padding: '11px 16px', background: 'transparent', border: 'none',
-                      fontSize: 13, fontWeight: 600,
-                      color: i === 0 ? '#2563eb' : '#1e293b',
-                      cursor: 'pointer', fontFamily: 'inherit',
-                      borderTop: i === 3 ? '1px solid #f1f5f9' : 'none',
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-                <div style={{ borderTop: '1px solid #f1f5f9' }}>
-                  <button
-                    onMouseDown={() => { localStorage.removeItem('rh_user'); window.location.reload(); }}
-                    style={{
-                      display: 'block', width: '100%', textAlign: 'left',
-                      padding: '11px 16px', background: 'transparent', border: 'none',
-                      fontSize: 13, fontWeight: 600, color: '#ef4444',
-                      cursor: 'pointer', fontFamily: 'inherit',
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#fff5f5')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    Выйти
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </aside>
@@ -276,7 +199,6 @@ export default function App() {
           <AnimatePresence mode="wait">
             {view === 'tasks'     && <TasksView key="t" onSchoolClick={goToSchool} user={user} />}
             {view === 'dashboard' && <DashboardView key="d" onSchoolClick={goToSchool} user={user} onGoProfile={() => setView('profile')} />}
-            {view === 'rating'    && <RatingView key="r" />}
             {view === 'school' && selectedSchool && (
               <SchoolView
                 key="s"
@@ -314,7 +236,7 @@ export default function App() {
                 }}
               />
             )}
-            {view === 'profile' && <ProfileView key="p" user={user} />}
+            {view === 'profile' && <ProfileView key="p" user={user} onLogout={() => { localStorage.removeItem('rh_user'); setUser(null); }} />}
             {view === 'create'  && <CreatePromiseView key="cp" user={user} onSuccess={() => setView('tasks')} />}
           </AnimatePresence>
         </div>
@@ -323,7 +245,7 @@ export default function App() {
       {/* ── Mobile bottom nav (Portal → rendered into body to avoid z-index issues) ── */}
       {ReactDOM.createPortal(
         <nav className="bottom-nav">
-          {NAV.filter(n => n.id !== 'rating').map(n => n.isCreate ? (
+          {NAV.map(n => n.isCreate ? (
             <button
               key={n.id}
               onClick={() => setView(n.id)}
@@ -794,171 +716,78 @@ function DashboardView({ onSchoolClick, user, onGoProfile }: {
   user: User | null;
   onGoProfile: () => void;
 }) {
-  const [stats, setStats] = useState<Stats | null>(null);
-  useEffect(() => { api.getStats().then(setStats).catch(console.error); }, []);
+  const [stats, setStats]       = useState<Stats | null>(null);
+  const [districts, setDistricts] = useState<District[]>([]);
 
-  const funnel   = stats?.promise_funnel ?? {};
-  const infra    = stats?.infrastructure ?? { gym: 0, water: 0, internet: 0, cafeteria: 0, electricity: 0 };
-  const statuses = stats?.school_statuses ?? {};
+  useEffect(() => {
+    api.getStats().then(setStats).catch(console.error);
+    api.getDistricts('Toshkent shahar').then(setDistricts).catch(console.error);
+  }, []);
+
+  const funnel      = stats?.promise_funnel ?? {};
+  const infra       = stats?.infrastructure ?? { gym: 0, water: 0, internet: 0, cafeteria: 0, electricity: 0 };
+  const statuses    = stats?.school_statuses ?? {};
   const totalFunnel = (funnel.pending ?? 0) + (funnel['in-progress'] ?? 0) + (funnel.resolved ?? 0) + (funnel.ignored ?? 0);
-  const xpPct = user ? Math.round((user.xp / user.xp_next) * 100) : 0;
-
-  const card: React.CSSProperties = {
-    background: '#fff',
-    borderRadius: 16,
-    border: '1px solid rgba(124,238,43,0.12)',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-    padding: '16px 18px',
-  };
 
   return (
     <FadeIn>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {/* ── Hero banner ── */}
-        <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', cursor: 'pointer' }} onClick={onGoProfile}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{
-              width: 60, height: 60, borderRadius: '50%', flexShrink: 0,
-              background: `${P}28`, border: `2px solid ${P}`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <UserIcon size={26} color={P} />
+        <div style={{
+          background: 'linear-gradient(135deg, #0d1b2e 0%, #1a3a5c 100%)',
+          borderRadius: 20, padding: '24px 28px',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+          overflow: 'hidden', position: 'relative', minHeight: 130,
+        }}>
+          <div style={{ zIndex: 1 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#4a7a99', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8 }}>
+              Платформа мониторинга
             </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#0d1b2e', lineHeight: 1.2 }}>
-                Привет, {user?.first_name ?? 'Инспектор'}! 👋
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#fff', lineHeight: 1.2, marginBottom: 12 }}>
+              Real Holat
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ background: 'rgba(124,238,43,0.15)', border: '1px solid rgba(124,238,43,0.3)', borderRadius: 20, padding: '5px 14px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: P }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: P }}>{val(stats?.total_schools ?? 0)} школ</span>
               </div>
-              <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
-                Уровень {user?.level ?? 1} · {user?.district ?? 'Инспектор'}
+              <div style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: '5px 14px' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8' }}>{val(stats?.total_promises ?? 0)} обращений</span>
               </div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff7ed', borderRadius: 100, padding: '8px 14px' }}>
-              <Zap size={14} color="#f97316" fill="#f97316" />
-              <span style={{ fontSize: 14, fontWeight: 800, color: '#f97316' }}>{user?.streak ?? 0}</span>
-              <span style={{ fontSize: 11, color: '#94a3b8' }}>стрик</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: `${P}18`, borderRadius: 100, padding: '8px 14px' }}>
-              <Star size={14} color={P} fill={P} />
-              <span style={{ fontSize: 14, fontWeight: 800, color: DARK }}>{val(user?.points_season ?? 0)}</span>
-              <span style={{ fontSize: 11, color: '#64748b' }}>баллов</span>
-            </div>
-          </div>
+          <img src="/school.png" alt="school" style={{ width: 160, height: 120, objectFit: 'contain', flexShrink: 0, marginBottom: -24, marginRight: -8 }} />
         </div>
 
         {/* ── 4 stat cards ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-          {/* Уровень + XP bar */}
-          <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Уровень</span>
-              <span style={{ fontSize: 10, fontWeight: 800, color: P, background: `${P}18`, padding: '2px 7px', borderRadius: 100 }}>{xpPct}%</span>
-            </div>
-            <div style={{ fontSize: 34, fontWeight: 800, color: '#0d1b2e', lineHeight: 1 }}>{user?.level ?? 1}</div>
-            <div style={{ height: 6, background: '#f1f5f0', borderRadius: 100, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${xpPct}%`, background: P, borderRadius: 100, transition: 'width 0.8s ease' }} />
-            </div>
-            <div style={{ fontSize: 10, color: '#94a3b8' }}>{user?.xp ?? 0} / {user?.xp_next ?? 1000} XP</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Школ охвачено</span>
+            <div style={{ fontSize: 36, fontWeight: 900, color: '#0d1b2e', lineHeight: 1 }}>{val(stats?.total_schools ?? 0)}</div>
+            <div style={{ fontSize: 11, color: '#7cee2b', fontWeight: 700 }}>↑ {stats?.weekly_inspections ?? 0} провер. за неделю</div>
           </div>
-
-          {/* Стрик */}
-          <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Стрик</span>
-            <div style={{ fontSize: 34, fontWeight: 800, color: '#f97316', lineHeight: 1 }}>{user?.streak ?? 0}</div>
-            <div style={{ fontSize: 11, color: '#94a3b8' }}>Макс: {user?.max_streak ?? 0} дн.</div>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>обращений</span>
+            <div style={{ fontSize: 36, fontWeight: 900, color: '#0d1b2e', lineHeight: 1 }}>{val(stats?.total_promises ?? 0)}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8' }}>всего на платформе</div>
           </div>
-
-          {/* Баллы */}
-          <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Баллы сезона</span>
-            <div style={{ fontSize: 34, fontWeight: 800, color: '#0d1b2e', lineHeight: 1 }}>{val(user?.points_season ?? 0)}</div>
-            <div style={{ fontSize: 11, color: '#94a3b8' }}>Всего: {val(user?.points_total ?? 0)}</div>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Выполнено</span>
+            <div style={{ fontSize: 36, fontWeight: 900, color: '#22c55e', lineHeight: 1 }}>{stats?.promise_completion ?? 0}%</div>
+            <div style={{ fontSize: 11, color: '#94a3b8' }}>обращений исполнено</div>
           </div>
-
-          {/* Школы — dark card */}
-          <div style={{ ...card, background: DARK, border: '1px solid rgba(124,238,43,0.18)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#4a7a30', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Школ охвачено</span>
-            <div style={{ fontSize: 34, fontWeight: 800, color: P, lineHeight: 1 }}>{val(stats?.total_schools ?? 0)}</div>
-            <div style={{ fontSize: 11, color: '#4a7a30' }}>{stats?.weekly_inspections ?? 0} провер. за неделю</div>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Инспекторов</span>
+            <div style={{ fontSize: 36, fontWeight: 900, color: '#0d1b2e', lineHeight: 1 }}>{stats?.active_inspectors ?? 0}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8' }}>активных граждан</div>
           </div>
         </div>
 
-        {/* ── Мониторинг — 3 quick metrics ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-          <div style={{ ...card, padding: '12px 16px' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Обещаний всего</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#0d1b2e' }}>{val(stats?.total_promises ?? 0)}</div>
-          </div>
-          <div style={{ ...card, background: P, border: '1px solid #5cb81f', padding: '12px 16px' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#2a5a00', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Выполнение</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: DARK }}>{stats?.promise_completion ?? 0}%</div>
-          </div>
-          <div style={{ ...card, padding: '12px 16px' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Инспекторов</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#0d1b2e' }}>{stats?.active_inspectors ?? 0}</div>
-          </div>
-        </div>
-
-        {/* ── Section header: Активные проблемы ── */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-          <span style={{ fontSize: 17, fontWeight: 700, color: '#0d1b2e' }}>Активные проблемы</span>
-          <button style={{ fontSize: 12, fontWeight: 700, color: P, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-            Все →
-          </button>
-        </div>
-
-        {/* ── 2×2 problem school grid ── */}
+        {/* ── Infra + Funnel ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {(stats?.top_problem_schools ?? []).slice(0, 4).map((s, i) => {
-            const colors = ['#3b82f6', '#8b5cf6', '#f97316', '#ec4899'];
-            const bg = colors[i % colors.length];
-            return (
-              <div key={i} style={{ ...card, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                  <div style={{
-                    width: 50, height: 50, borderRadius: 14, flexShrink: 0,
-                    background: bg + '18', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <AlertTriangle size={22} color={bg} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name_ru}</div>
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{s.district}</div>
-                    <div style={{ marginTop: 6 }}>
-                      <span style={{ background: '#fef2f2', color: '#ef4444', fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        {s.open_promises} обещ. открыто
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  className="btn-shine"
-                  onClick={() => onSchoolClick(s as any)}
-                  style={{
-                    width: '100%', background: P, color: DARK, fontWeight: 700,
-                    border: 'none', borderRadius: 10, padding: '10px 0', fontSize: 13,
-                    cursor: 'pointer', fontFamily: 'inherit',
-                  }}
-                >
-                  Проверить →
-                </button>
-              </div>
-            );
-          })}
-          {!stats && [1, 2, 3, 4].map(i => (
-            <div key={i} style={{ height: 130, background: '#f7f8f6', borderRadius: 16, border: '1px solid rgba(124,238,43,0.08)' }} />
-          ))}
-        </div>
-
-        {/* ── Infrastructure + Funnel row ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          {/* Infra */}
-          <div style={{ ...card, background: DARK, border: '1px solid rgba(124,238,43,0.15)', color: '#fff' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#4a7a30', marginBottom: 12 }}>
-              Инфраструктура
-            </div>
+          <div className="card" style={{ background: '#0d1b2e', border: '1px solid rgba(124,238,43,0.15)' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#7cee2b', marginBottom: 14 }}>Инфраструктура</div>
             {[
               { label: 'Электричество', v: infra.electricity, c: P },
               { label: 'Вода',          v: infra.water,       c: '#38bdf8' },
@@ -966,48 +795,208 @@ function DashboardView({ onSchoolClick, user, onGoProfile }: {
               { label: 'Спортзал',      v: infra.gym,         c: '#fb923c' },
               { label: 'Столовая',      v: infra.cafeteria,   c: '#f472b6' },
             ].map(item => (
-              <div key={item.label} style={{ marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                  <span style={{ fontSize: 10, color: '#64748b' }}>{item.label}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: item.c }}>{item.v}%</span>
+              <div key={item.label} style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>{item.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: item.c }}>{item.v}%</span>
                 </div>
-                <div style={{ height: 4, background: '#2a3a1a', borderRadius: 100, overflow: 'hidden' }}>
+                <div style={{ height: 5, background: '#1e3a5f', borderRadius: 100, overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${item.v}%`, background: item.c, borderRadius: 100, transition: 'width 0.8s ease' }} />
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Funnel */}
-          <div style={card}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: 12 }}>
-              Воронка обещаний
-            </div>
+          <div className="card">
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: 14 }}>Воронка обращений</div>
             {[
               { label: 'Ожидают',   v: funnel.pending ?? 0,        c: '#f59e0b' },
               { label: 'В работе',  v: funnel['in-progress'] ?? 0, c: '#38bdf8' },
               { label: 'Выполнено', v: funnel.resolved ?? 0,       c: P },
               { label: 'Игнорир.',  v: funnel.ignored ?? 0,        c: '#ef4444' },
             ].map(item => (
-              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 10, color: '#64748b', width: 58, flexShrink: 0 }}>{item.label}</span>
-                <div style={{ flex: 1, height: 5, background: '#f1f5f0', borderRadius: 100, overflow: 'hidden' }}>
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 11, color: '#64748b', width: 62, flexShrink: 0 }}>{item.label}</span>
+                <div style={{ flex: 1, height: 6, background: '#f1f5f0', borderRadius: 100, overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${totalFunnel ? item.v / totalFunnel * 100 : 0}%`, background: item.c, borderRadius: 100, transition: 'width 0.8s ease' }} />
                 </div>
-                <span style={{ fontSize: 11, fontWeight: 700, color: item.c, minWidth: 30, textAlign: 'right' }}>{val(item.v)}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: item.c, minWidth: 32, textAlign: 'right' }}>{val(item.v)}</span>
               </div>
             ))}
-            <div style={{ borderTop: '1px solid #f1f5f0', marginTop: 8, paddingTop: 10, display: 'flex', justifyContent: 'space-between' }}>
+            <div style={{ borderTop: '1.5px solid #f1f5f9', marginTop: 10, paddingTop: 12, display: 'flex', justifyContent: 'space-around' }}>
               {[
                 { label: 'Норма',    v: statuses.ok ?? 0,      c: P },
                 { label: 'Проблема', v: statuses.problem ?? 0, c: '#ef4444' },
                 { label: 'Непров.',  v: statuses.stale ?? 0,   c: '#94a3b8' },
               ].map(s => (
                 <div key={s.label} style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: s.c }}>{val(s.v)}</div>
-                  <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 1 }}>{s.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: s.c }}>{val(s.v)}</div>
+                  <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Активные проблемы ── */}
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: '#0d1b2e' }}>Активные проблемы</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Школы, требующие проверки прямо сейчас</div>
+            </div>
+            <button style={{ fontSize: 12, fontWeight: 800, color: '#182210', background: P, border: 'none', borderRadius: 20, padding: '7px 16px', cursor: 'pointer', fontFamily: 'inherit' }}>Все →</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {(stats?.top_problem_schools ?? []).slice(0, 4).map((s, i) => {
+              const palette = [
+                { accent: '#ef4444', bg: '#fef2f2', label: 'Критично' },
+                { accent: '#f97316', bg: '#fff7ed', label: 'Высокий' },
+                { accent: '#f59e0b', bg: '#fffbeb', label: 'Средний' },
+                { accent: '#3b82f6', bg: '#eff6ff', label: 'Низкий' },
+              ];
+              const pl = palette[i];
+              return (
+                <div key={i} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 18px' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: pl.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ fontSize: 15, fontWeight: 900, color: pl.accent }}>{i + 1}</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name_ru}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                      <span style={{ fontSize: 10, color: '#94a3b8' }}>{s.district}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: pl.accent, background: pl.bg, padding: '2px 8px', borderRadius: 20 }}>{pl.label}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: pl.accent, lineHeight: 1 }}>{s.open_promises}</div>
+                      <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600, marginTop: 1 }}>открыто</div>
+                    </div>
+                    <button
+                      className="btn-shine"
+                      onClick={() => onSchoolClick(s as any)}
+                      style={{
+                        background: 'linear-gradient(135deg, #7cee2b 0%, #5bc91e 100%)',
+                        color: '#182210', fontWeight: 800, border: 'none', borderRadius: 10,
+                        padding: '8px 14px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                        whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3,
+                        boxShadow: '0 2px 8px rgba(124,238,43,0.3)',
+                      }}
+                    >
+                      Проверить <ChevronRight size={11} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {!stats && [1,2,3,4].map(i => (
+              <div key={i} style={{ height: 68, background: '#f7f8f6', borderRadius: 16 }} />
+            ))}
+          </div>
+        </div>
+
+        {/* ── Рейтинг районов ── */}
+        <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: '#0d1b2e' }}>Рейтинг районов</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Прозрачное сравнение эффективности управления школами</div>
+          </div>
+
+          {/* twomod community banner + stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+            <div style={{
+              background: 'linear-gradient(135deg, #7cee2b 0%, #4ade80 100%)',
+              borderRadius: 20, padding: '20px 22px',
+              overflow: 'hidden', position: 'relative', minHeight: 130,
+            }}>
+              <img src="/twomod.png" alt="community" className="twomod-img" />
+              <div style={{ position: 'relative', zIndex: 1 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: '#1a4a00', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Сообщество</div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: '#0d1b2e', lineHeight: 1.25, marginBottom: 10 }}>
+                  Граждане<br />проверяют вместе
+                </div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(13,27,46,0.12)', borderRadius: 20, padding: '5px 12px' }}>
+                  <Users size={11} color="#0d1b2e" />
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#0d1b2e' }}>{stats?.active_inspectors ?? 0} инспекторов</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="card" style={{ flex: 1, background: '#0d1b2e', border: '1px solid rgba(124,238,43,0.2)' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#4a7a99', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Районов в рейтинге</div>
+                <div style={{ fontSize: 32, fontWeight: 900, color: P, lineHeight: 1 }}>{districts.length}</div>
+              </div>
+              <div className="card" style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Лидер</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#0d1b2e', lineHeight: 1.3 }}>
+                  🥇 {districts[0]?.name?.replace(' tumani', '') ?? '—'}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#22c55e', marginTop: 3 }}>
+                  {districts[0]?.fulfillment_rate ?? 0}% выполнение
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* table */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#0d1b2e' }}>Все районы</div>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                Ср. выполнение: <span style={{ fontWeight: 800, color: '#0d1b2e' }}>
+                  {districts.length ? Math.round(districts.reduce((a, d) => a + d.fulfillment_rate, 0) / districts.length) : 0}%
+                </span>
+              </div>
+            </div>
+            <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            {districts.length === 0 ? (
+              <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8' }}>Загрузка…</div>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>#</th><th>Район</th><th>Школ</th><th>Выполнение</th><th>Проверено</th><th>Игнор.</th><th>Тренд</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {districts.map((d, i) => {
+                    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null;
+                    return (
+                      <tr key={d.name}>
+                        <td>
+                          {medal
+                            ? <span style={{ fontSize: 18 }}>{medal}</span>
+                            : <div style={{ width: 26, height: 26, borderRadius: 7, background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>{i + 1}</div>
+                          }
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 700, color: '#0d1b2e' }}>{d.name.replace(' tumani', '')}</div>
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>{d.oblast.replace(' viloyati', '').replace(' shahar', ' ш.')}</div>
+                        </td>
+                        <td style={{ fontWeight: 700 }}>{d.total_schools}</td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 110 }}>
+                            <div className="progress-track" style={{ flex: 1 }}>
+                              <div className="progress-fill" style={{ width: `${d.fulfillment_rate}%`, background: d.fulfillment_rate > 70 ? '#22c55e' : d.fulfillment_rate > 40 ? '#f59e0b' : '#ef4444' }} />
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2e', minWidth: 30 }}>{d.fulfillment_rate}%</span>
+                          </div>
+                        </td>
+                        <td><span style={{ fontWeight: 700 }}>{d.checked_ratio}%</span></td>
+                        <td>{d.ignored_count > 0 ? <span className="badge badge-red">{d.ignored_count}</span> : <span className="badge badge-green">0</span>}</td>
+                        <td>
+                          {d.trend === 'up'
+                            ? <span style={{ color: '#22c55e', display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 700 }}><TrendingUp size={13} /> Рост</span>
+                            : <span style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 700 }}><TrendingDown size={13} /> Падение</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
             </div>
           </div>
         </div>
@@ -1019,121 +1008,6 @@ function DashboardView({ onSchoolClick, user, onGoProfile }: {
 
 function val(n: number) { return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
 
-// ─── RATING ───────────────────────────────────────────────────────────────────
-
-function RatingView() {
-  const [districts, setDistricts] = useState<District[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.getDistricts('Toshkent shahar').then(d => { setDistricts(d); setLoading(false); }).catch(() => setLoading(false));
-  }, []);
-
-  return (
-    <FadeIn>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, color: '#0d1b2e', marginBottom: 4 }}>Рейтинг районов</h2>
-            <p style={{ fontSize: 13, color: '#94a3b8' }}>Прозрачное сравнение эффективности управления школами</p>
-          </div>
-          <button className="btn btn-secondary btn-sm"><Filter size={14} /> Фильтр</button>
-        </div>
-
-        {/* Header top stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-          <div className="card-blue" style={{ padding: '18px 20px' }}>
-            <div className="stat-label">Районов в рейтинге</div>
-            <div className="stat-value">{districts.length}</div>
-          </div>
-          <div className="card-pink" style={{ padding: '18px 20px' }}>
-            <div className="stat-label">Лучший район</div>
-            <div style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>
-              {districts[0]?.name?.replace(' tumani', '') ?? '—'}
-            </div>
-          </div>
-          <div className="card-dark" style={{ padding: '18px 20px' }}>
-            <div className="stat-label" style={{ color: '#5c7a9a' }}>Ср. выполнение</div>
-            <div className="stat-value">
-              {districts.length ? Math.round(districts.reduce((a, d) => a + d.fulfillment_rate, 0) / districts.length) : 0}%
-            </div>
-          </div>
-        </div>
-
-        {/* Districts table */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px 12px', borderBottom: '1.5px solid #f1f5f9' }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2e' }}>Все районы</div>
-          </div>
-
-          {loading ? (
-            <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8' }}>Загрузка…</div>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Район</th>
-                  <th>Школ</th>
-                  <th>Выполнение</th>
-                  <th>Проверено</th>
-                  <th>Игнорируется</th>
-                  <th>Тренд</th>
-                </tr>
-              </thead>
-              <tbody>
-                {districts.map((d, i) => (
-                  <tr key={d.name}>
-                    <td>
-                      <div style={{
-                        width: 26, height: 26, borderRadius: 7,
-                        background: i < 3 ? '#2563eb' : '#f1f5f9',
-                        color: i < 3 ? '#fff' : '#64748b',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 12, fontWeight: 800
-                      }}>{i + 1}</div>
-                    </td>
-                    <td>
-                      <div style={{ fontWeight: 700, color: '#0d1b2e' }}>{d.name}</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>{d.oblast}</div>
-                    </td>
-                    <td style={{ fontWeight: 700 }}>{d.total_schools}</td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 120 }}>
-                        <div className="progress-track" style={{ flex: 1 }}>
-                          <div
-                            className="progress-fill"
-                            style={{
-                              width: `${d.fulfillment_rate}%`,
-                              background: d.fulfillment_rate > 70 ? '#22c55e' : d.fulfillment_rate > 40 ? '#f59e0b' : '#ef4444'
-                            }}
-                          />
-                        </div>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2e', minWidth: 32 }}>{d.fulfillment_rate}%</span>
-                      </div>
-                    </td>
-                    <td><span style={{ fontWeight: 700 }}>{d.checked_ratio}%</span></td>
-                    <td>
-                      {d.ignored_count > 0
-                        ? <span className="badge badge-red">{d.ignored_count}</span>
-                        : <span className="badge badge-green">0</span>}
-                    </td>
-                    <td>
-                      {d.trend === 'up'
-                        ? <span style={{ color: '#22c55e', display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 700 }}><TrendingUp size={14} /> Рост</span>
-                        : <span style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 700 }}><TrendingDown size={14} /> Падение</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </FadeIn>
-  );
-}
 
 // ─── SCHOOL DETAIL ────────────────────────────────────────────────────────────
 
@@ -1643,18 +1517,28 @@ function SchoolMarkers({ schools, onSchoolClick }: { schools: SchoolMapItem[]; o
 
 function FlyToLocation({ lat, lng, zoom }: { lat: number; lng: number; zoom: number }) {
   const map = useMap();
-  useEffect(() => { map.flyTo([lat, lng], zoom, { duration: 1.2 }); }, [lat, lng, zoom]);
+  // Runs on every mount — key prop forces remount each time we want to fly
+  useEffect(() => { map.flyTo([lat, lng], zoom, { duration: 1.0, easeLinearity: 0.5 }); }, []); // eslint-disable-line
   return null;
 }
 
 function UserDot({ lat, lng }: { lat: number; lng: number }) {
   const icon = L.divIcon({
     className: '',
-    html: `<div style="width:14px;height:14px;border-radius:50%;background:#2563eb;border:2.5px solid #fff;box-shadow:0 0 0 3px rgba(37,99,235,0.3)"></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    html: `<div class="user-loc-dot"><div class="user-loc-ring"></div><div class="user-loc-core"></div></div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
   });
-  return <Marker position={[lat, lng]} icon={icon} />;
+  return <Marker position={[lat, lng]} icon={icon} zIndexOffset={2000} />;
+}
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function CaptureView({ onSchoolClick }: { onSchoolClick: (s: SchoolMapItem) => void; user: User | null }) {
@@ -1663,42 +1547,81 @@ function CaptureView({ onSchoolClick }: { onSchoolClick: (s: SchoolMapItem) => v
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [oblastOpen, setOblastOpen] = useState(false);
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
-  const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
+  const [flyKey, setFlyKey] = useState(0);
+  const flyRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null);
   const [locating, setLocating] = useState(false);
+  const [locDenied, setLocDenied] = useState(false);
+  const [nearbyOpen, setNearbyOpen] = useState(false);
+  const [allSchools, setAllSchools] = useState<SchoolMapItem[]>([]);
+  const watchIdRef = useRef<number | null>(null);
+  const allLoadedRef = useRef(false);
+  const userLocRef = useRef<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => { api.getMapSchools(oblast).then(setMapSchools).catch(console.error); }, [oblast]);
 
-  // Auto-request location on mount
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setUserLoc(loc);
-        setFlyTo({ ...loc, zoom: 14 });
-        api.getAllMapSchools().then(setMapSchools).catch(console.error);
-      },
-      () => {},
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+  const doFly = useCallback((lat: number, lng: number, zoom: number) => {
+    flyRef.current = { lat, lng, zoom };
+    setFlyKey(k => k + 1);
   }, []);
 
-  const handleLocate = () => {
-    if (locating || !navigator.geolocation) return;
+  const loadAllSchools = useCallback(async () => {
+    if (allLoadedRef.current) return;
+    allLoadedRef.current = true;
+    const all = await api.getAllMapSchools().catch(() => [] as SchoolMapItem[]);
+    setAllSchools(all);
+    setMapSchools(all);
+  }, []);
+
+  const onPosition = useCallback(async (pos: GeolocationPosition) => {
+    const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    const isFirst = !userLocRef.current;
+    userLocRef.current = loc;
+    setUserLoc(loc);
+    setLocating(false);
+    setLocDenied(false);
+    loadAllSchools();
+    // Fly to user on first fix, keep map centered on updates
+    if (isFirst) {
+      doFly(loc.lat, loc.lng, 15);
+      setNearbyOpen(true);
+    }
+  }, [doFly, loadAllSchools]);
+
+  const onError = useCallback((err: GeolocationPositionError) => {
+    setLocating(false);
+    if (err.code === err.PERMISSION_DENIED) setLocDenied(true);
+  }, []);
+
+  // On mount: get position immediately + watch for live updates
+  useEffect(() => {
+    if (!navigator.geolocation) return;
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setUserLoc(loc);
-        setFlyTo({ ...loc, zoom: 14 });
-        api.getAllMapSchools().then(setMapSchools).catch(console.error);
-        setStatusFilter(null);
-        setLocating(false);
-      },
-      () => setLocating(false),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
+    // Immediate one-shot (fires faster than watchPosition in many browsers)
+    navigator.geolocation.getCurrentPosition(onPosition, onError, { enableHighAccuracy: true, timeout: 15000 });
+    // Also watch for live tracking
+    watchIdRef.current = navigator.geolocation.watchPosition(onPosition, onError, {
+      enableHighAccuracy: true, maximumAge: 10000,
+    });
+    return () => {
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+    };
+  }, []); // eslint-disable-line
+
+  const handleLocate = useCallback(() => {
+    if (locDenied) {
+      alert('Геолокация отклонена. Разрешите доступ в настройках браузера.');
+      return;
+    }
+    if (!userLocRef.current) {
+      if (!navigator.geolocation) return;
+      setLocating(true);
+      navigator.geolocation.getCurrentPosition(onPosition, onError, { enableHighAccuracy: true, timeout: 15000 });
+      return;
+    }
+    // Fly to current location + show nearby
+    doFly(userLocRef.current.lat, userLocRef.current.lng, 15);
+    setNearbyOpen(true);
+  }, [locDenied, onPosition, onError, doFly]);
 
   const oblastOpts = [
     { key: 'Toshkent shahar',    label: 'Ташкент' },
@@ -1716,6 +1639,18 @@ function CaptureView({ onSchoolClick }: { onSchoolClick: (s: SchoolMapItem) => v
   const [flyLat, flyLng, flyZoom] = OBLAST_CENTERS[oblast];
   const filtered = statusFilter ? mapSchools.filter(s => s.status === statusFilter) : mapSchools;
   const currentOblast = oblastOpts.find(o => o.key === oblast)!;
+
+  // Nearby schools — sorted by distance, within 5km
+  const nearbyList = userLoc
+    ? (allSchools.length ? allSchools : mapSchools)
+        .map(s => ({ ...s, dist: haversineKm(userLoc.lat, userLoc.lng, s.lat, s.lng) }))
+        .filter(s => s.dist <= 5)
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 7)
+    : [];
+
+  const statusColor: Record<string, string> = { ok: '#22c55e', problem: '#ef4444', stale: '#f59e0b' };
+  const statusLabel: Record<string, string> = { ok: 'Норма', problem: 'Проблема', stale: 'Не провер.' };
 
   const glassBtn: React.CSSProperties = {
     padding: '7px 14px', borderRadius: 100, fontSize: 12, fontWeight: 700,
@@ -1735,31 +1670,102 @@ function CaptureView({ onSchoolClick }: { onSchoolClick: (s: SchoolMapItem) => v
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <MapFlyTo lat={flyLat} lng={flyLng} zoom={flyZoom} />
-        {flyTo && <FlyToLocation lat={flyTo.lat} lng={flyTo.lng} zoom={flyTo.zoom} />}
+        {flyKey > 0 && flyRef.current && (
+          <FlyToLocation key={flyKey} lat={flyRef.current.lat} lng={flyRef.current.lng} zoom={flyRef.current.zoom} />
+        )}
         {userLoc && <UserDot lat={userLoc.lat} lng={userLoc.lng} />}
         <SchoolMarkers schools={filtered} onSchoolClick={onSchoolClick} />
       </MapContainer>
 
-      {/* Locate me button — top left */}
+      {/* Nearby schools panel — bottom right above locate btn */}
+      {nearbyOpen && userLoc && nearbyList.length > 0 && (
+        <div style={{
+          position: 'absolute', bottom: 78, right: 14, zIndex: 1001,
+          width: 260, maxHeight: 320, overflowY: 'auto',
+          background: 'rgba(255,255,255,0.96)', backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)', borderRadius: 16,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.18)', padding: '12px 0',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px 8px' }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#0d1b2e', letterSpacing: 0.3 }}>
+              Ближайшие школы
+            </span>
+            <button onClick={() => setNearbyOpen(false)} style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+              color: '#94a3b8', display: 'flex', alignItems: 'center',
+            }}>
+              <X size={14} />
+            </button>
+          </div>
+          {nearbyList.map((s, i) => (
+            <button
+              key={s.id}
+              onClick={() => { setNearbyOpen(false); onSchoolClick(s); }}
+              style={{
+                width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10,
+                textAlign: 'left', transition: 'background 0.12s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            >
+              <span style={{
+                width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                background: i === 0 ? '#fef9c3' : '#f1f5f9',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 800, color: '#64748b',
+              }}>{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {s.name}
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
+                  {s.dist < 1 ? `${Math.round(s.dist * 1000)} м` : `${s.dist.toFixed(1)} км`}
+                </div>
+              </div>
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 6,
+                background: (statusColor[s.status] || '#94a3b8') + '22',
+                color: statusColor[s.status] || '#94a3b8', flexShrink: 0,
+              }}>
+                {statusLabel[s.status] || s.status}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Locate me button — bottom right */}
       <button
+        className="map-locate-btn"
         onClick={handleLocate}
+        title={locating ? 'Определяем...' : userLoc ? 'Ближайшие школы' : 'Найти меня'}
         style={{
-          position: 'absolute', top: 14, left: 14, zIndex: 1000,
-          padding: '7px 14px', borderRadius: 100, fontSize: 12, fontWeight: 700,
-          border: 'none', cursor: locating ? 'wait' : 'pointer', fontFamily: 'inherit',
-          background: userLoc ? 'rgba(37,99,235,0.92)' : 'rgba(255,255,255,0.88)',
+          position: 'absolute', bottom: 24, right: 14, zIndex: 1002,
+          width: 48, height: 48, borderRadius: '50%',
+          border: 'none', cursor: locating ? 'wait' : 'pointer',
+          background: locDenied
+            ? 'rgba(239,68,68,0.15)'
+            : userLoc
+              ? 'rgba(37,99,235,0.92)'
+              : 'rgba(220,252,231,0.95)',
           backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          color: userLoc ? '#fff' : '#0d1b2e',
-          display: 'flex', alignItems: 'center', gap: 6,
-          transition: 'all 0.15s', whiteSpace: 'nowrap',
-          opacity: locating ? 0.7 : 1,
+          boxShadow: userLoc ? '0 4px 16px rgba(37,99,235,0.35)' : '0 2px 10px rgba(0,0,0,0.18)',
+          color: locDenied ? '#ef4444' : userLoc ? '#fff' : '#16a34a',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'all 0.2s',
+          opacity: locating ? 0.6 : 1,
         }}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
-        </svg>
-        {locating ? 'Определяем...' : userLoc ? 'Моя локация' : 'Найти меня'}
+        {locating ? (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ animation: 'spin 1s linear infinite' }}>
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style={{ transform: 'rotate(90deg)' }}>
+            <path d="M2.4 2.4a1 1 0 0 1 1.2-.24l18 8a1 1 0 0 1 0 1.84l-7.6 3.37-3.37 7.6a1 1 0 0 1-1.84 0l-8-18a1 1 0 0 1 .61-1.57z"/>
+          </svg>
+        )}
       </button>
 
       {/* Oblast dropdown — top right */}
@@ -1807,10 +1813,10 @@ function CaptureView({ onSchoolClick }: { onSchoolClick: (s: SchoolMapItem) => v
         )}
       </div>
 
-      {/* Status filter pills — bottom right (mobile: above nav) */}
+      {/* Status filter pills — top left, desktop only */}
       <div className="map-status-pills" style={{
-        position: 'absolute', bottom: 24, right: 14, zIndex: 1000,
-        display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end',
+        position: 'absolute', top: 14, left: 14, zIndex: 1000,
+        display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start',
       }}>
         {statusOpts.map(o => {
           const active = statusFilter === o.key;
@@ -2276,7 +2282,7 @@ function CreatePromiseView({ user, onSuccess }: { user: User; onSuccess: () => v
 
 // ─── PROFILE ──────────────────────────────────────────────────────────────────
 
-function ProfileView({ user }: { user: User | null }) {
+function ProfileView({ user, onLogout }: { user: User | null; onLogout: () => void }) {
   if (!user) return (
     <FadeIn>
       <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>Загрузка...</div>
@@ -2308,230 +2314,297 @@ function ProfileView({ user }: { user: User | null }) {
 
   return (
     <FadeIn>
-      <div style={{ maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14, paddingBottom: 16 }}>
+      <div className="profile-grid">
 
-        {/* User card */}
-        <div className="card" style={{ padding: '22px 20px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
-            <div style={{ position: 'relative', flexShrink: 0 }}>
-              <img
-                src="https://picsum.photos/seed/anvar/200/200"
-                style={{ width: 64, height: 64, borderRadius: 16, objectFit: 'cover' }}
-                alt="avatar"
-              />
-              <div style={{
-                position: 'absolute', bottom: -4, right: -4,
-                width: 22, height: 22, borderRadius: 6,
-                background: '#ec4899', border: '2px solid #fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center'
-              }}>
-                <Award size={12} color="#fff" />
-              </div>
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 17, fontWeight: 800, color: '#0d1b2e', lineHeight: 1.2 }}>{user.name}</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                ID: UX-{(user.id ?? 'demo').slice(0, 4).toUpperCase()}-491
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#7cee2b', marginTop: 4 }}>
-                Уровень {user.level} · Сезон 4
-              </div>
-            </div>
-          </div>
+        {/* ── LEFT COLUMN ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-          {/* XP bar */}
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>
-              <span>XP до Уровня {user.level + 1}</span>
-              <span style={{ color: '#0d1b2e', fontWeight: 800 }}>{user.xp.toLocaleString()} / {user.xp_next.toLocaleString()}</span>
-            </div>
-            <div className="progress-track" style={{ height: 8 }}>
-              <div className="progress-fill" style={{ width: `${xpPct}%`, background: 'linear-gradient(90deg, #7cee2b, #4ade80)' }} />
-            </div>
-          </div>
-
-          {/* Buttons */}
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button style={{
-              flex: 1, padding: '13px 20px',
-              background: '#7cee2b', border: 'none', borderRadius: 50,
-              fontSize: 14, fontWeight: 800, color: '#0d1b2e', cursor: 'pointer'
-            }}>
-              Edit Profile
-            </button>
-            <button style={{
-              width: 48, height: 48, flexShrink: 0,
-              background: '#f1f5f9', border: 'none', borderRadius: 50,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
-            }}>
-              <Share2 size={18} color="#64748b" />
-            </button>
-          </div>
-        </div>
-
-        {/* Season Progress */}
-        <div className="card" style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2e' }}>Season 4 Progress</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Ends in 5 days</div>
-            </div>
-            <div>
-              <span style={{ fontSize: 15, fontWeight: 900, color: '#7cee2b' }}>{user.points_season.toLocaleString()}</span>
-              <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}> / {SEASON_MAX.toLocaleString()} XP</span>
-            </div>
-          </div>
-
-          <div className="progress-track" style={{ height: 8, marginBottom: 16 }}>
-            <div className="progress-fill" style={{ width: `${seasonPct}%`, background: 'linear-gradient(90deg, #7cee2b, #4ade80)' }} />
-          </div>
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            {TIERS.map((t, i) => {
-              const unlocked = unlockedTiers[i];
-              const isCurrent = i === currentTierIdx;
-              return (
-                <div key={t} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                  <div style={{
-                    width: 46, height: 46, borderRadius: 50,
-                    background: unlocked ? '#7cee2b' : isCurrent ? '#f0fdf4' : '#f1f5f9',
-                    border: `2.5px solid ${unlocked ? '#4ade80' : isCurrent ? '#7cee2b' : '#e2e8f0'}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                  }}>
-                    {unlocked
-                      ? <CheckCircle2 size={20} color="#0d1b2e" />
-                      : isCurrent
-                        ? <Star size={18} color="#7cee2b" />
-                        : <Shield size={16} color="#cbd5e1" />}
-                  </div>
-                  <span style={{
-                    fontSize: 11, fontWeight: 700,
-                    color: unlocked ? '#0d1b2e' : isCurrent ? '#7cee2b' : '#94a3b8'
-                  }}>{t}</span>
+          {/* User card */}
+          <div className="card" style={{ padding: '24px 22px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <div style={{
+                  width: 72, height: 72, borderRadius: 20,
+                  background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <UserIcon size={34} color="#94a3b8" />
                 </div>
-              );
-            })}
-          </div>
-        </div>
+                <div style={{
+                  position: 'absolute', bottom: -4, right: -4,
+                  width: 22, height: 22, borderRadius: 7,
+                  background: '#7cee2b', border: '2px solid #fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <Award size={11} color="#0d1b2e" />
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 18, fontWeight: 900, color: '#0d1b2e', lineHeight: 1.2 }}>Anonymous #{user.uid ?? '—'}</div>
+                <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+                  ID: {user.id.slice(0, 16).toUpperCase()}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#7cee2b', marginTop: 5 }}>
+                  Уровень {user.level} · Сезон 4
+                </div>
+              </div>
+            </div>
 
-        {/* Streak stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div className="card" style={{ padding: '18px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10 }}>
-              <Zap size={12} color="#f97316" />
-              <span style={{ fontSize: 9, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Current Streak</span>
+            {/* XP bar */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 600, color: '#94a3b8', marginBottom: 7 }}>
+                <span>XP до Уровня {user.level + 1}</span>
+                <span style={{ color: '#0d1b2e', fontWeight: 800 }}>{user.xp.toLocaleString()} / {user.xp_next.toLocaleString()}</span>
+              </div>
+              <div className="progress-track" style={{ height: 8 }}>
+                <div className="progress-fill" style={{ width: `${xpPct}%`, background: 'linear-gradient(90deg, #7cee2b, #4ade80)' }} />
+              </div>
             </div>
-            <div style={{ fontSize: 32, fontWeight: 900, color: '#0d1b2e', lineHeight: 1 }}>{user.streak}</div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginTop: 2 }}>Days</div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#7cee2b', marginTop: 8 }}>+2% Efficiency</div>
-          </div>
-          <div className="card" style={{ padding: '18px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10 }}>
-              <Star size={12} color="#f59e0b" />
-              <span style={{ fontSize: 9, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Max Streak</span>
-            </div>
-            <div style={{ fontSize: 32, fontWeight: 900, color: '#0d1b2e', lineHeight: 1 }}>{user.max_streak}</div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginTop: 2 }}>Days</div>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>All-time record</div>
-          </div>
-        </div>
 
-        {/* Total Points — dark block */}
-        <div style={{
-          background: '#0d1b2e', borderRadius: 20, padding: '22px 20px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-        }}>
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#5c7a9a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
-              Total Citizen Points
-            </div>
-            <div style={{ fontSize: 38, fontWeight: 900, color: '#fff', lineHeight: 1 }}>
-              {user.points_total.toLocaleString('ru-RU')}
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button style={{
+                flex: 1, padding: '12px 20px',
+                background: '#7cee2b', border: 'none', borderRadius: 50,
+                fontSize: 13, fontWeight: 800, color: '#0d1b2e', cursor: 'pointer'
+              }}>Редактировать</button>
+              <button style={{
+                width: 46, height: 46, flexShrink: 0,
+                background: '#f1f5f9', border: 'none', borderRadius: 50,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
+              }}>
+                <Share2 size={17} color="#64748b" />
+              </button>
+              <button style={{
+                width: 46, height: 46, flexShrink: 0,
+                background: '#f1f5f9', border: 'none', borderRadius: 50,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
+              }}>
+                <Settings size={17} color="#64748b" />
+              </button>
+              <button
+                onClick={() => { if (window.confirm('Выйти из аккаунта?')) onLogout(); }}
+                style={{
+                  width: 46, height: 46, flexShrink: 0,
+                  background: '#fff0f0', border: 'none', borderRadius: 50,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
+                }}
+              >
+                <LogOut size={17} color="#ef4444" />
+              </button>
             </div>
           </div>
+
+          {/* Total Points dark block */}
           <div style={{
-            width: 54, height: 54, borderRadius: 14,
-            background: 'rgba(124,238,43,0.12)',
-            border: '1.5px solid rgba(124,238,43,0.25)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
+            background: '#0d1b2e', borderRadius: 20, padding: '22px 22px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between'
           }}>
-            <Award size={26} color="#7cee2b" />
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#5c7a9a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+                Всего очков гражданина
+              </div>
+              <div style={{ fontSize: 42, fontWeight: 900, color: '#fff', lineHeight: 1 }}>
+                {user.points_total.toLocaleString('ru-RU')}
+              </div>
+            </div>
+            <div style={{
+              width: 54, height: 54, borderRadius: 14,
+              background: 'rgba(124,238,43,0.12)',
+              border: '1.5px solid rgba(124,238,43,0.25)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>
+              <Award size={26} color="#7cee2b" />
+            </div>
+          </div>
+
+          {/* Mascot motivation block */}
+          <div style={{
+            background: 'linear-gradient(135deg, #0d1b2e 0%, #1a3a5c 100%)',
+            borderRadius: 20, padding: '20px 22px',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+            overflow: 'hidden', position: 'relative', minHeight: 110,
+          }}>
+            <div style={{ zIndex: 1 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#5c7a9a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+                Твой прогресс
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: '#fff', lineHeight: 1.3, marginBottom: 10 }}>
+                Продолжай<br />в том же духе!
+              </div>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                background: 'rgba(124,238,43,0.15)', border: '1px solid rgba(124,238,43,0.3)',
+                borderRadius: 20, padding: '5px 12px'
+              }}>
+                <Zap size={11} color="#7cee2b" />
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#7cee2b' }}>Streak {user.streak} дней</span>
+              </div>
+            </div>
+            <img
+              src="/likeboy.png"
+              alt="mascot"
+              style={{ width: 100, height: 100, objectFit: 'contain', flexShrink: 0, marginBottom: -20, marginRight: -4 }}
+            />
+          </div>
+
+          {/* Streak Freeze */}
+          <div className="card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ fontSize: 26 }}>❄️</div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#0d1b2e' }}>Заморозка стрика</div>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>Защита от потери стрика</div>
+              </div>
+            </div>
+            <div style={{
+              background: '#f0fdf4', borderRadius: 10, padding: '7px 16px',
+              fontSize: 16, fontWeight: 900, color: '#0d1b2e'
+            }}>x{user.streak_freezes}</div>
           </div>
         </div>
 
-        {/* District Achievements */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2e' }}>District Achievements</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#7cee2b', cursor: 'pointer' }}>View All</span>
+        {/* ── RIGHT COLUMN ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* Season Progress */}
+          <div className="card" style={{ padding: '22px 22px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2e' }}>Прогресс сезона 4</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Заканчивается через 5 дней</div>
+              </div>
+              <div>
+                <span style={{ fontSize: 15, fontWeight: 900, color: '#7cee2b' }}>{user.points_season.toLocaleString()}</span>
+                <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}> / {SEASON_MAX.toLocaleString()}</span>
+              </div>
+            </div>
+            <div className="progress-track" style={{ height: 8, marginBottom: 18 }}>
+              <div className="progress-fill" style={{ width: `${seasonPct}%`, background: 'linear-gradient(90deg, #7cee2b, #4ade80)' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {TIERS.map((t, i) => {
+                const unlocked = unlockedTiers[i];
+                const isCurrent = i === currentTierIdx;
+                return (
+                  <div key={t} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                    <div style={{
+                      width: 44, height: 44, borderRadius: 50,
+                      background: unlocked ? '#7cee2b' : isCurrent ? '#f0fdf4' : '#f1f5f9',
+                      border: `2.5px solid ${unlocked ? '#4ade80' : isCurrent ? '#7cee2b' : '#e2e8f0'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      {unlocked ? <CheckCircle2 size={19} color="#0d1b2e" />
+                        : isCurrent ? <Star size={17} color="#7cee2b" />
+                        : <Shield size={15} color="#cbd5e1" />}
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: unlocked ? '#0d1b2e' : isCurrent ? '#7cee2b' : '#94a3b8' }}>{t}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6 }}>
-            {user.badges.length > 0 ? user.badges.map((b, i) => {
-              const colors = BADGE_COLORS[i % BADGE_COLORS.length];
-              return (
-                <div key={b.id} style={{
-                  flexShrink: 0, width: 112, padding: '16px 12px',
-                  background: '#fff', borderRadius: 18,
-                  border: '1.5px solid #f1f5f9', textAlign: 'center',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+
+          {/* Streak stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="card" style={{ padding: '18px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10 }}>
+                <Zap size={12} color="#f97316" />
+                <span style={{ fontSize: 9, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Текущий стрик</span>
+              </div>
+              <div style={{ fontSize: 34, fontWeight: 900, color: '#0d1b2e', lineHeight: 1 }}>{user.streak}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginTop: 2 }}>дней</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#7cee2b', marginTop: 8 }}>+2% эффективность</div>
+            </div>
+            <div className="card" style={{ padding: '18px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10 }}>
+                <Star size={12} color="#f59e0b" />
+                <span style={{ fontSize: 9, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Макс. стрик</span>
+              </div>
+              <div style={{ fontSize: 34, fontWeight: 900, color: '#0d1b2e', lineHeight: 1 }}>{user.max_streak}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginTop: 2 }}>дней</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>Личный рекорд</div>
+            </div>
+          </div>
+
+          {/* Achievements */}
+          <div className="card" style={{ padding: '20px 22px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2e' }}>Достижения</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#7cee2b', cursor: 'pointer' }}>Все</span>
+            </div>
+            <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+              {user.badges.length > 0 ? user.badges.map((b, i) => {
+                const colors = BADGE_COLORS[i % BADGE_COLORS.length];
+                return (
+                  <div key={b.id} style={{
+                    flexShrink: 0, width: 100, padding: '14px 10px',
+                    background: '#f8fafc', borderRadius: 16,
+                    border: '1.5px solid #f1f5f9', textAlign: 'center'
+                  }}>
+                    <div style={{
+                      width: 44, height: 44, borderRadius: 12, margin: '0 auto 8px',
+                      background: colors.bg,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22
+                    }}>{b.icon}</div>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: '#0d1b2e', lineHeight: 1.3 }}>{b.title}</div>
+                  </div>
+                );
+              }) : (
+                <div style={{ color: '#94a3b8', fontSize: 13 }}>Пока нет достижений</div>
+              )}
+            </div>
+          </div>
+
+          {/* Reward Store */}
+          <div className="card" style={{ padding: '20px 22px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2e' }}>Магазин наград</div>
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: '#f97316',
+                background: '#fff7ed', border: '1px solid #fed7aa',
+                borderRadius: 20, padding: '3px 10px', textTransform: 'uppercase', letterSpacing: '0.06em'
+              }}>Скоро</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>Будет реализовано государством</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {[0,1,2,3].map(i => (
+                <div key={i} style={{
+                  borderRadius: 16, padding: '18px 12px',
+                  border: '1.5px dashed #e2e8f0',
+                  background: 'rgba(248,250,252,0.5)',
+                  backdropFilter: 'blur(4px)',
+                  textAlign: 'center',
+                  filter: 'blur(0px)',
+                  position: 'relative', overflow: 'hidden'
                 }}>
                   <div style={{
-                    width: 48, height: 48, borderRadius: 13, margin: '0 auto 10px',
-                    background: colors.bg,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 24
-                  }}>{b.icon}</div>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#0d1b2e', lineHeight: 1.3 }}>{b.title}</div>
-                  <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{b.description}</div>
+                    width: 44, height: 44, borderRadius: 12, margin: '0 auto 10px',
+                    background: '#f1f5f9',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}>
+                    <Shield size={20} color="#cbd5e1" />
+                  </div>
+                  <div style={{
+                    height: 10, borderRadius: 6, background: '#e2e8f0', margin: '0 auto 6px', width: '70%'
+                  }} />
+                  <div style={{
+                    height: 8, borderRadius: 6, background: '#f1f5f9', margin: '0 auto', width: '45%'
+                  }} />
+                  {/* lock overlay */}
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'rgba(255,255,255,0.45)',
+                    backdropFilter: 'blur(2px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}>
+                    <div style={{ fontSize: 18 }}>🔒</div>
+                  </div>
                 </div>
-              );
-            }) : (
-              <div style={{ color: '#94a3b8', fontSize: 13, padding: '10px 0' }}>Пока нет достижений</div>
-            )}
-          </div>
-        </div>
-
-        {/* Reward Store */}
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2e', marginBottom: 12 }}>Reward Store</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {REWARDS.map((r, i) => (
-              <div key={i} style={{
-                background: '#fff', borderRadius: 18, padding: '18px 14px',
-                border: '1.5px solid #f1f5f9', textAlign: 'center',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.04)', cursor: 'pointer'
-              }}>
-                <div style={{
-                  width: 52, height: 52, borderRadius: 14, margin: '0 auto 10px',
-                  background: '#f0fdf4',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 26
-                }}>{r.icon}</div>
-                <div style={{ fontSize: 12, fontWeight: 800, color: '#0d1b2e', marginBottom: 6 }}>{r.name}</div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                  <Zap size={11} color="#7cee2b" />
-                  <span style={{ fontSize: 12, fontWeight: 800, color: '#7cee2b' }}>{r.pts} pts</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Streak Freezes */}
-        <div className="card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ fontSize: 24 }}>❄️</div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: '#0d1b2e' }}>Streak Freeze</div>
-              <div style={{ fontSize: 11, color: '#94a3b8' }}>Защита от потери стрика</div>
+              ))}
             </div>
           </div>
-          <div style={{
-            background: '#f0fdf4', borderRadius: 10, padding: '7px 16px',
-            fontSize: 16, fontWeight: 900, color: '#0d1b2e'
-          }}>x{user.streak_freezes}</div>
-        </div>
 
+        </div>
       </div>
     </FadeIn>
   );
