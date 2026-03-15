@@ -13,7 +13,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { api, School, District, User, SchoolMapItem, Stats, SchoolPromise } from './api';
+import { api, School, District, User, SchoolMapItem, Stats, SchoolPromise, TaskSchool } from './api';
 import L from 'leaflet';
 
 type View = 'tasks' | 'dashboard' | 'school' | 'capture' | 'inspection' | 'profile' | 'create';
@@ -41,7 +41,9 @@ function promiseStatusBadge(s: string) {
   const map: Record<string, { cls: string; label: string }> = {
     pending:       { cls: 'badge-gray',   label: 'Ожидает' },
     'in-progress': { cls: 'badge-blue',   label: 'В работе' },
-    resolved:      { cls: 'badge-green',  label: 'Выполнено' },
+    resolved:      { cls: 'badge-green',  label: 'Сделано' },
+    waiting:       { cls: 'badge-yellow', label: 'Ждёт проверки' },
+    confirmed:     { cls: 'badge-green',  label: 'Подтверждено' },
     ignored:       { cls: 'badge-red',    label: 'Игнорируется' },
   };
   const m = map[s] ?? { cls: 'badge-gray', label: s };
@@ -66,6 +68,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<School[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [tasksKey, setTasksKey] = useState(0);
   const [activePromiseId, setActivePromiseId] = useState<string | undefined>(undefined);
 
   if (!user) {
@@ -197,7 +200,7 @@ export default function App() {
         {/* Views */}
         <div className="content-area">
           <AnimatePresence mode="wait">
-            {view === 'tasks'     && <TasksView key="t" onSchoolClick={goToSchool} user={user} />}
+            {view === 'tasks'     && <TasksView key={`t-${tasksKey}`} onSchoolClick={goToSchool} user={user} />}
             {view === 'dashboard' && <DashboardView key="d" onSchoolClick={goToSchool} user={user} onGoProfile={() => setView('profile')} />}
             {view === 'school' && selectedSchool && (
               <SchoolView
@@ -214,7 +217,7 @@ export default function App() {
                 school={selectedSchool}
                 promiseId={activePromiseId}
                 onCancel={() => setView('school')}
-                onDone={(pts?: number) => {
+                onDone={async (pts?: number) => {
                   if (pts && pts > 0) {
                     setUser(u => {
                       if (!u) return u;
@@ -232,12 +235,17 @@ export default function App() {
                       return updated;
                     });
                   }
+                  // Re-fetch school to reflect updated promise status
+                  if (selectedSchool) {
+                    const fresh = await api.getSchool(selectedSchool.id);
+                    setSelectedSchool(fresh);
+                  }
                   setView('school');
                 }}
               />
             )}
             {view === 'profile' && <ProfileView key="p" user={user} onLogout={() => { localStorage.removeItem('rh_user'); setUser(null); }} />}
-            {view === 'create'  && <CreatePromiseView key="cp" user={user} onSuccess={() => setView('tasks')} />}
+            {view === 'create'  && <CreatePromiseView key="cp" user={user} onSuccess={() => { setTasksKey(k => k + 1); setView('tasks'); }} />}
           </AnimatePresence>
         </div>
       </div>
@@ -335,26 +343,24 @@ const FAMOUS_META: Record<string, { amount: number; source: string; deadline: st
 type TaskFilters = { status: 'all'|'overdue'|'active'; source: 'all'|'etender'|'crowd' };
 
 function TasksView({ onSchoolClick, user }: { onSchoolClick: (s: SchoolMapItem) => void; user: User }) {
-  const [schools, setSchools] = useState<SchoolMapItem[]>([]);
+  const [schools, setSchools] = useState<TaskSchool[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<TaskFilters>({ status: 'all', source: 'all' });
 
   useEffect(() => {
-    setSchools(TASHKENT_SCHOOLS);
-    setLoading(false);
+    setLoading(true);
+    api.getTaskSchools().then(data => {
+      setSchools(data);
+      setLoading(false);
+    }).catch(() => setLoading(false));
   }, []);
 
-  const deadlines = ['24 окт 2025', '02 ноя 2025', '15 ноя 2025', '01 дек 2025', '20 окт 2025', '10 янв 2026', '28 фев 2026', '15 мар 2026'];
-
-  const filtered = schools.filter((s, i) => {
-    const meta    = FAMOUS_META[s.id];
-    const overdue = meta ? meta.overdue : (i % 5 === 0);
-    const src     = meta?.source ?? TASK_SOURCES[i % TASK_SOURCES.length];
-    if (filters.status === 'overdue' && !overdue) return false;
-    if (filters.status === 'active' && overdue) return false;
-    if (filters.source === 'etender' && src !== 'E-tender') return false;
-    if (filters.source === 'crowd' && src !== 'Народный') return false;
+  const filtered = schools.filter(s => {
+    if (filters.status === 'overdue' && !s.has_overdue) return false;
+    if (filters.status === 'active' && s.has_overdue) return false;
+    if (filters.source === 'etender' && s.source !== 'E-tender') return false;
+    if (filters.source === 'crowd' && s.source !== 'Народный') return false;
     return true;
   });
 
@@ -572,15 +578,17 @@ function TasksView({ onSchoolClick, user }: { onSchoolClick: (s: SchoolMapItem) 
 
         <div className="tasks-grid" style={{ display: 'grid', gap: 18 }}>
           {filtered.map((s, i) => {
-            const meta      = FAMOUS_META[s.id];
-            const source    = meta.source;
-            const rawAmt    = meta.amount;
-            const deadline  = meta.deadline;
-            const isOverdue = meta.overdue;
-            // Format: millions if ≥ 1M, else thousands
+            const source    = s.source || 'E-tender';
+            const rawAmt    = s.max_amount || 0;
+            const isOverdue = s.has_overdue;
+            const deadline  = s.nearest_deadline
+              ? new Date(s.nearest_deadline).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
+              : '—';
             const amount = rawAmt >= 1_000_000
               ? (rawAmt / 1_000_000).toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' млн UZS'
-              : rawAmt.toLocaleString('ru-RU') + ' UZS';
+              : rawAmt > 0
+              ? rawAmt.toLocaleString('ru-RU') + ' UZS'
+              : '—';
 
             const photo = SCHOOL_PHOTOS[i % SCHOOL_PHOTOS.length];
 
@@ -812,7 +820,9 @@ function DashboardView({ onSchoolClick, user, onGoProfile }: {
             {[
               { label: 'Ожидают',   v: funnel.pending ?? 0,        c: '#f59e0b' },
               { label: 'В работе',  v: funnel['in-progress'] ?? 0, c: '#38bdf8' },
-              { label: 'Выполнено', v: funnel.resolved ?? 0,       c: P },
+              { label: 'Сделано',   v: funnel.resolved ?? 0,       c: '#4ade80' },
+              { label: 'Ждёт пров.', v: funnel.waiting ?? 0,       c: '#facc15' },
+              { label: 'Подтвержд.', v: funnel.confirmed ?? 0,     c: P },
               { label: 'Игнорир.',  v: funnel.ignored ?? 0,        c: '#ef4444' },
             ].map(item => (
               <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -1021,9 +1031,9 @@ function SchoolView({ school, onBack, onInspect }: {
   const trustScore = Math.min(5.0, 3.8 + school.promises.filter(p => p.status === 'resolved').length * 0.08);
 
   const PROMISE_ICONS = ['🔧', '📦', '🏗️', '💡', '🖥️', '🏃', '📚', '🌊', '⚡', '🔬'];
-  const FUNNEL_LABEL: Record<string, string>  = { pending: 'ОЖИДАНИЕ', 'in-progress': 'ИСПОЛНЕНИЕ', resolved: 'ВЫПОЛНЕНО', ignored: 'ИГНОРИРУЕТСЯ' };
-  const FUNNEL_COLOR: Record<string, string>  = { pending: '#f59e0b', 'in-progress': '#7cee2b', resolved: '#7cee2b', ignored: '#ef4444' };
-  const FUNNEL_PCT:   Record<string, number>  = { pending: 20, 'in-progress': 60, resolved: 100, ignored: 0 };
+  const FUNNEL_LABEL: Record<string, string>  = { pending: 'ОЖИДАНИЕ', 'in-progress': 'В РАБОТЕ', resolved: 'СДЕЛАНО', waiting: 'ЖДЁТ ПРОВЕРКИ', confirmed: 'ПОДТВЕРЖДЕНО', ignored: 'ИГНОРИРУЕТСЯ' };
+  const FUNNEL_COLOR: Record<string, string>  = { pending: '#f59e0b', 'in-progress': '#38bdf8', resolved: '#4ade80', waiting: '#facc15', confirmed: '#7cee2b', ignored: '#ef4444' };
+  const FUNNEL_PCT:   Record<string, number>  = { pending: 20, 'in-progress': 40, resolved: 60, waiting: 80, confirmed: 100, ignored: 0 };
   const TYPE_TAG: Record<string, { label: string; bg: string; color: string }> = {
     capital:    { label: 'CAPITAL',    bg: '#dbeafe', color: '#1d4ed8' },
     consumable: { label: 'CONSUMABLE', bg: '#ede9fe', color: '#7c3aed' },
@@ -1306,7 +1316,7 @@ function SchoolView({ school, onBack, onInspect }: {
           { title: 'Ждёт проверки',   desc: 'Ожидает проверки гражданами', icon: '👁️' },
           { title: 'Проверено',       desc: 'Подтверждено гражданским сообществом', icon: '✅' },
         ];
-        const activeStep = { pending: 1, 'in-progress': 2, resolved: 4, ignored: 0 }[selectedPromise.status] ?? 1;
+        const activeStep = { pending: 0, 'in-progress': 1, resolved: 2, waiting: 3, confirmed: 4, ignored: 0 }[selectedPromise.status] ?? 0;
 
         return ReactDOM.createPortal(
           <div
@@ -1854,6 +1864,19 @@ function InspectionView({ school, promiseId, onCancel, onDone }: {
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [photos, setPhotos] = useState<{ file: File; preview: string }[]>([]);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const newPhotos = Array.from(files).map(f => ({ file: f, preview: URL.createObjectURL(f) }));
+    setPhotos(prev => [...prev, ...newPhotos]);
+    e.target.value = '';
+  };
+  const removePhoto = (idx: number) => {
+    setPhotos(prev => { URL.revokeObjectURL(prev[idx].preview); return prev.filter((_, i) => i !== idx); });
+  };
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -1863,6 +1886,7 @@ function InspectionView({ school, promiseId, onCancel, onDone }: {
         promise_id: promise?.id,
         checklist_answers: Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, v ?? false])) as Record<string, boolean>,
         comment,
+        photos: photos.map(p => p.file),
       });
       setResult((res as any).feedback);
     } catch (e) { console.error(e); }
@@ -1913,10 +1937,36 @@ function InspectionView({ school, promiseId, onCancel, onDone }: {
           </div>
         )}
 
-        <div className="card-dark" style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-          <CameraIcon size={40} color="#3d5166" />
-          <div style={{ fontSize: 13, color: '#3d5166', fontWeight: 600 }}>Камера активна</div>
-          <div style={{ fontSize: 11, color: '#2a3f54' }}>GPS: {school.lat.toFixed(4)}, {school.lng.toFixed(4)}</div>
+        <div className="card-dark" style={{ padding: 16 }}>
+          <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple onChange={handlePhoto} style={{ display: 'none' }} />
+          {photos.length === 0 ? (
+            <div
+              onClick={() => fileRef.current?.click()}
+              style={{ height: 170, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, cursor: 'pointer', border: '2px dashed #3d5166', borderRadius: 14 }}
+            >
+              <CameraIcon size={40} color="#3d5166" />
+              <div style={{ fontSize: 13, color: '#3d5166', fontWeight: 600 }}>Сделать фото</div>
+              <div style={{ fontSize: 11, color: '#2a3f54' }}>GPS: {school.lat.toFixed(4)}, {school.lng.toFixed(4)}</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                {photos.map((p, i) => (
+                  <div key={i} style={{ position: 'relative', width: 80, height: 80 }}>
+                    <img src={p.preview} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 10 }} />
+                    <button onClick={() => removePhoto(i)} style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 50, background: '#ef4444', color: '#fff', border: 'none', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>&times;</button>
+                  </div>
+                ))}
+                <div
+                  onClick={() => fileRef.current?.click()}
+                  style={{ width: 80, height: 80, borderRadius: 10, border: '2px dashed #3d5166', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                >
+                  <CameraIcon size={24} color="#3d5166" />
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: '#2a3f54' }}>GPS: {school.lat.toFixed(4)}, {school.lng.toFixed(4)} · {photos.length} фото</div>
+            </div>
+          )}
         </div>
 
         <div className="card">

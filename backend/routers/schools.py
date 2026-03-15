@@ -83,6 +83,41 @@ def all_map_schools():
         return [dict(r) for r in cur.fetchall()]
 
 
+@router.get("/tasks")
+def task_schools(limit: int = Query(1000, le=5000), offset: int = 0, source: Optional[str] = None, overdue: Optional[bool] = None):
+    """Schools with open promises — for the Tasks/Inspections page."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        where = ["p.status IN ('pending','in-progress','resolved','waiting')"]
+        params = []
+        if source:
+            where.append("p.source = %s")
+            params.append(source)
+        if overdue is True:
+            where.append("p.deadline < CURRENT_DATE")
+        elif overdue is False:
+            where.append("(p.deadline >= CURRENT_DATE OR p.deadline IS NULL)")
+
+        query = f"""
+            SELECT s.id, s.name_ru, s.district, s.oblast, s.lat, s.lng,
+                   s.status, s.capture_level,
+                   COUNT(p.id) AS promise_count,
+                   MIN(p.deadline) AS nearest_deadline,
+                   MAX(p.amount) AS max_amount,
+                   (SELECT p2.source FROM promises p2 WHERE p2.school_id = s.id AND p2.status IN ('pending','in-progress','resolved','waiting') ORDER BY p2.deadline LIMIT 1) AS source,
+                   BOOL_OR(p.deadline < CURRENT_DATE) AS has_overdue
+            FROM schools s
+            JOIN promises p ON p.school_id = s.id
+            WHERE {' AND '.join(where)}
+            GROUP BY s.id
+            ORDER BY BOOL_OR(p.deadline < CURRENT_DATE) DESC, MIN(p.deadline) ASC
+            LIMIT %s OFFSET %s
+        """
+        params.extend([limit, offset])
+        cur.execute(query, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
 @router.get("/{school_id}")
 def get_school(school_id: str):
     with get_db() as conn:

@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from database import init_db
@@ -31,6 +32,10 @@ app.include_router(districts.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+
+uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 
 @app.on_event("startup")
