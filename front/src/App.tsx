@@ -14,7 +14,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { api, School, District, User, SchoolMapItem, Stats, SchoolPromise, TaskSchool } from './api';
+import { api, School, District, User, SchoolMapItem, Stats, SchoolPromise, TaskSchool, Inspection } from './api';
 import L from 'leaflet';
 
 type View = 'tasks' | 'dashboard' | 'school' | 'promise' | 'capture' | 'inspection' | 'profile' | 'create';
@@ -72,6 +72,7 @@ export default function App() {
   const [tasksKey, setTasksKey] = useState(0);
   const [activePromiseId, setActivePromiseId] = useState<string | undefined>(undefined);
   const [selectedPromise, setSelectedPromise] = useState<SchoolPromise | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
 
   if (!user) {
     return <AuthPage onLogin={u => setUser(u)} />;
@@ -210,7 +211,7 @@ export default function App() {
                 school={selectedSchool}
                 onBack={() => setView('dashboard')}
                 onPromiseClick={p => { setSelectedPromise(p); setView('promise'); }}
-                onInspect={pid => { setActivePromiseId(pid); setView('inspection'); }}
+                onInspect={pid => { setActivePromiseId(pid); setShowCameraModal(true); }}
               />
             )}
             {view === 'promise' && selectedSchool && selectedPromise && (
@@ -219,7 +220,7 @@ export default function App() {
                 promise={selectedPromise}
                 school={selectedSchool}
                 onBack={() => setView('school')}
-                onInspect={pid => { setActivePromiseId(pid); setView('inspection'); }}
+                onInspect={pid => { setActivePromiseId(pid); setShowCameraModal(true); }}
               />
             )}
             {view === 'capture'    && <CaptureView key="c" onSchoolClick={goToSchool} user={user} />}
@@ -263,6 +264,36 @@ export default function App() {
       </div>
 
       {/* ── Mobile bottom nav (Portal → rendered into body to avoid z-index issues) ── */}
+      {showCameraModal && selectedSchool && (
+        <CameraInspectionModal
+          school={selectedSchool}
+          promise={selectedSchool.promises?.find(p => p.id === activePromiseId) ?? selectedPromise ?? undefined}
+          userId={user.id}
+          onClose={() => setShowCameraModal(false)}
+          onDone={(pts) => {
+            setShowCameraModal(false);
+            if (pts > 0) {
+              setUser(u => {
+                if (!u) return u;
+                const newXp = u.xp + pts;
+                const leveled = newXp >= u.xp_next;
+                const updated = {
+                  ...u,
+                  xp: leveled ? newXp - u.xp_next : newXp,
+                  xp_next: leveled ? Math.round(u.xp_next * 1.4) : u.xp_next,
+                  level: leveled ? u.level + 1 : u.level,
+                  points_total: u.points_total + pts,
+                  points_season: u.points_season + pts,
+                };
+                localStorage.setItem('rh_user', JSON.stringify(updated));
+                return updated;
+              });
+            }
+            api.getSchool(selectedSchool.id).then(setSelectedSchool).catch(() => {});
+          }}
+        />
+      )}
+
       {ReactDOM.createPortal(
         <nav className="bottom-nav">
           {NAV.map(n => n.isCreate ? (
@@ -300,6 +331,27 @@ const FadeIn = ({ children, delay = 0 }: { children: React.ReactNode; delay?: nu
     {children}
   </motion.div>
 );
+
+// ─── SCHOOL PHOTO MAP (Tashkent real photos) ─────────────────────────────────
+
+const TASHKENT_PHOTOS: Record<string, string> = {
+  '448':        '/schools/101.jpg',
+  '690':        '/schools/115.jpg',
+  '172':        '/schools/148.jpg',
+  '146':        '/schools/356.jpg',
+  'famous-001': '/schools/1.jpg',
+  'famous-002': '/schools/110.jpg',
+  'famous-003': '/schools/114.jpg',
+  'famous-006': '/schools/278.jpg',
+  'famous-007': '/schools/6.jpg',
+  'famous-008': '/schools/34.jpg',
+};
+
+function getSchoolPhoto(id: string, uid?: number | null, fallbackIdx?: number): string {
+  if (TASHKENT_PHOTOS[id]) return TASHKENT_PHOTOS[id];
+  const seed = uid ?? id;
+  return `https://picsum.photos/seed/sch${seed}/400/300`;
+}
 
 // ─── TASKS ────────────────────────────────────────────────────────────────────
 
@@ -602,7 +654,7 @@ function TasksView({ onSchoolClick, user }: { onSchoolClick: (s: SchoolMapItem) 
               ? rawAmt.toLocaleString('ru-RU') + ' UZS'
               : '—';
 
-            const photo = SCHOOL_PHOTOS[i % SCHOOL_PHOTOS.length];
+            const photo = getSchoolPhoto(s.id, null, i);
 
             const pts = s.promise_count * 25 + (isOverdue ? 50 : 20) + Math.round(s.capture_level * 0.8);
 
@@ -1037,17 +1089,29 @@ function SchoolView({ school, onBack, onPromiseClick, onInspect }: {
   school: School; onBack: () => void; onPromiseClick: (p: SchoolPromise) => void; onInspect: (pid?: string) => void;
 }) {
   const [tab, setTab] = useState<'promises' | 'checks' | 'analytics'>('promises');
+  const [inspections, setInspections] = useState<Inspection[] | null>(null);
+  const [inspLoading, setInspLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab === 'checks' && inspections === null && !inspLoading) {
+      setInspLoading(true);
+      api.getInspections(school.id)
+        .then(setInspections)
+        .catch(() => setInspections([]))
+        .finally(() => setInspLoading(false));
+    }
+  }, [tab]);
 
   const capturePercent = [0, 33, 66, 100][school.capture_level] ?? 0;
   const trustScore = Math.min(5.0, 3.8 + school.promises.filter(p => p.status === 'resolved').length * 0.08);
 
-  const PROMISE_ICONS: Record<string, React.ReactNode> = {
-    pending:      <Clock size={20} color="#16a34a" />,
-    'in-progress': <Hammer size={20} color="#16a34a" />,
-    resolved:     <CheckCheck size={20} color="#16a34a" />,
-    waiting:      <Eye size={20} color="#16a34a" />,
-    confirmed:    <ClipboardCheck size={20} color="#16a34a" />,
-    ignored:      <Ban size={20} color="#16a34a" />,
+  const PROMISE_STATUS: Record<string, { icon: React.ReactNode; bg: string; border: string }> = {
+    pending:       { icon: <Clock size={20} color="#d97706" />,       bg: 'linear-gradient(135deg,#fef9c3,#fef3c7)', border: '#fde68a' },
+    'in-progress': { icon: <Hammer size={20} color="#2563eb" />,      bg: 'linear-gradient(135deg,#eff6ff,#dbeafe)', border: '#bfdbfe' },
+    resolved:      { icon: <CheckCheck size={20} color="#16a34a" />,  bg: 'linear-gradient(135deg,#d4fbb0,#e8fcd8)', border: '#bbf7d0' },
+    waiting:       { icon: <Eye size={20} color="#7c3aed" />,         bg: 'linear-gradient(135deg,#f5f3ff,#ede9fe)', border: '#ddd6fe' },
+    confirmed:     { icon: <ClipboardCheck size={20} color="#059669" />, bg: 'linear-gradient(135deg,#d1fae5,#a7f3d0)', border: '#6ee7b7' },
+    ignored:       { icon: <Ban size={20} color="#ef4444" />,         bg: 'linear-gradient(135deg,#fff1f2,#fee2e2)', border: '#fecaca' },
   };
   const FUNNEL_LABEL: Record<string, string>  = { pending: 'ОЖИДАНИЕ', 'in-progress': 'В РАБОТЕ', resolved: 'СДЕЛАНО', waiting: 'ЖДЁТ ПРОВЕРКИ', confirmed: 'ПОДТВЕРЖДЕНО', ignored: 'ИГНОРИРУЕТСЯ' };
   const FUNNEL_COLOR: Record<string, string>  = { pending: '#f59e0b', 'in-progress': '#38bdf8', resolved: '#4ade80', waiting: '#facc15', confirmed: '#7cee2b', ignored: '#ef4444' };
@@ -1057,9 +1121,11 @@ function SchoolView({ school, onBack, onPromiseClick, onInspect }: {
     consumable: { label: 'CONSUMABLE', bg: '#ede9fe', color: '#7c3aed' },
   };
 
+  const schoolPhoto = getSchoolPhoto(school.id, school.uid);
+
   const TABS = [
     { id: 'promises',  label: `Обращения (${school.promises.length})` },
-    { id: 'checks',    label: 'Проверки' },
+    { id: 'checks',    label: `Проверки${inspections ? ` (${inspections.length})` : ''}` },
     { id: 'analytics', label: 'Аналитика' },
   ];
 
@@ -1085,7 +1151,7 @@ function SchoolView({ school, onBack, onPromiseClick, onInspect }: {
             {/* Photo */}
             <div className="school-hero-img">
               <img
-                src={`https://picsum.photos/seed/sch${school.uid ?? school.id}/400/300`}
+                src={schoolPhoto}
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                 alt={school.name_ru}
               />
@@ -1154,9 +1220,8 @@ function SchoolView({ school, onBack, onPromiseClick, onInspect }: {
               )}
 
               {school.promises.map((p, i) => {
-                const typeTag = TYPE_TAG[p.type] ?? TYPE_TAG['consumable'];
+                const st = PROMISE_STATUS[p.status] ?? PROMISE_STATUS['pending'];
                 const funnelPct = FUNNEL_PCT[p.status] ?? 0;
-                const funnelColor = FUNNEL_COLOR[p.status] ?? '#94a3b8';
                 const funnelLabel = FUNNEL_LABEL[p.status] ?? p.status.toUpperCase();
                 const sourceIsEtender = p.source === 'E-tender';
 
@@ -1168,18 +1233,14 @@ function SchoolView({ school, onBack, onPromiseClick, onInspect }: {
                       {/* Status icon */}
                       <div style={{
                         width: 44, height: 44, borderRadius: 13, flexShrink: 0,
-                        background: 'linear-gradient(135deg, #d4fbb0 0%, #e8fcd8 100%)',
-                        border: '1.5px solid #bbf7d0',
+                        background: st.bg, border: `1.5px solid ${st.border}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>{PROMISE_ICONS[p.status] ?? <ClipboardList size={20} color="#16a34a" />}</div>
+                      }}>{st.icon}</div>
 
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 800, color: '#0d1b2e', lineHeight: 1.3, marginBottom: 7 }}>{p.title}</div>
 
                         <div style={{ display: 'flex', gap: 5, marginBottom: 9, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: typeTag.bg, color: typeTag.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                            {typeTag.label}
-                          </span>
                           <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 4,
                             background: sourceIsEtender ? '#dbeafe' : '#fce7f3',
                             color: sourceIsEtender ? '#1d4ed8' : '#be185d',
@@ -1192,28 +1253,29 @@ function SchoolView({ school, onBack, onPromiseClick, onInspect }: {
                           }}>{funnelLabel}</span>
                         </div>
 
-                        <div style={{ display: 'flex', gap: 3, marginBottom: 10 }}>
-                          {[20, 40, 60, 80, 100].map(step => (
-                            <div key={step} style={{
-                              flex: 1, height: 4, borderRadius: 3,
-                              background: funnelPct >= step ? '#7cee2b' : '#f1f5f9'
-                            }} />
-                          ))}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ display: 'flex', gap: 3, flex: 1 }}>
+                            {[20, 40, 60, 80, 100].map(step => (
+                              <div key={step} style={{
+                                flex: 1, height: 4, borderRadius: 3,
+                                background: funnelPct >= step ? '#7cee2b' : '#f1f5f9'
+                              }} />
+                            ))}
+                          </div>
+                          <button
+                            className="btn-shine"
+                            style={{
+                              padding: '5px 13px', borderRadius: 9, border: 'none', cursor: 'pointer',
+                              fontFamily: 'inherit', fontSize: 11, fontWeight: 700, flexShrink: 0,
+                              background: 'linear-gradient(135deg, #7cee2b 0%, #5bc91e 100%)',
+                              color: '#182210',
+                              boxShadow: '0 2px 8px rgba(124,238,43,0.3)',
+                            }}
+                            onClick={e => { e.stopPropagation(); onPromiseClick(p); }}
+                          >
+                            Проверить
+                          </button>
                         </div>
-
-                        <button
-                          className="btn-shine"
-                          style={{
-                            padding: '7px 16px', borderRadius: 10, border: 'none', cursor: 'pointer',
-                            fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
-                            background: 'linear-gradient(135deg, #7cee2b 0%, #5bc91e 100%)',
-                            color: '#182210',
-                            boxShadow: '0 2px 8px rgba(124,238,43,0.3)',
-                          }}
-                          onClick={e => { e.stopPropagation(); onPromiseClick(p); }}
-                        >
-                          Проверить
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -1303,11 +1365,103 @@ function SchoolView({ school, onBack, onPromiseClick, onInspect }: {
 
         {/* TAB: Checks */}
         {tab === 'checks' && (
-          <div style={{
-            textAlign: 'center', padding: '48px 24px', borderRadius: 20,
-            background: '#f0fdf4', border: '1.5px dashed #bbf7d0', color: '#4b7a5e', fontSize: 13,
-          }}>
-            История всех проверок появится здесь
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {inspLoading && (
+              <div style={{ textAlign: 'center', padding: '40px 24px', color: '#94a3b8', fontSize: 13 }}>
+                Загрузка проверок...
+              </div>
+            )}
+
+            {!inspLoading && inspections?.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '48px 24px', borderRadius: 20, background: '#f0fdf4', border: '1.5px dashed #bbf7d0', color: '#4b7a5e', fontSize: 13 }}>
+                Проверок по этой школе пока нет
+              </div>
+            )}
+
+            {inspections?.map((ins) => {
+              const photos: string[] = Array.isArray(ins.photos) ? ins.photos : [];
+              const answers = ins.checklist_answers ?? {};
+              const answerKeys = Object.keys(answers);
+              const yesCount = answerKeys.filter(k => answers[k] === true).length;
+              const promise = school.promises.find(p => p.id === ins.promise_id);
+
+              return (
+                <div key={ins.id} style={{ background: '#fff', borderRadius: 18, border: '1.5px solid #e8edf2', overflow: 'hidden' }}>
+                  {/* Header */}
+                  <div style={{ padding: '14px 18px 12px', borderBottom: photos.length > 0 || answerKeys.length > 0 ? '1.5px solid #f1f5f9' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+                          background: ins.status === 'published' ? '#f0fdf4' : '#fefce8',
+                          color: ins.status === 'published' ? '#16a34a' : '#a16207',
+                          border: `1.5px solid ${ins.status === 'published' ? '#bbf7d0' : '#fde68a'}`,
+                        }}>
+                          {ins.status === 'published' ? 'Опубликовано' : 'На проверке'}
+                        </span>
+                        {ins.points_awarded > 0 && (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <Star size={11} color="#f59e0b" fill="#f59e0b" />
+                            +{ins.points_awarded} XP
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>
+                        {new Date(ins.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {promise && <span style={{ marginLeft: 6, color: '#64748b' }}>· {promise.title}</span>}
+                      </div>
+                    </div>
+                    {answerKeys.length > 0 && (
+                      <div style={{ flexShrink: 0, textAlign: 'center' }}>
+                        <div style={{ fontSize: 18, fontWeight: 900, color: '#16a34a' }}>{yesCount}/{answerKeys.length}</div>
+                        <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>чеклист</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Photos */}
+                  {photos.length > 0 && (
+                    <div style={{ padding: '12px 18px', display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: answerKeys.length > 0 ? '1.5px solid #f1f5f9' : 'none' }}>
+                      {photos.map((src, i) => (
+                        <img
+                          key={i}
+                          src={src}
+                          alt=""
+                          style={{ width: 88, height: 88, borderRadius: 12, objectFit: 'cover', border: '1.5px solid #e2e8f0', cursor: 'pointer' }}
+                          onClick={() => window.open(src, '_blank')}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Checklist answers */}
+                  {answerKeys.length > 0 && (
+                    <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {answerKeys.map((q) => (
+                        <div key={q} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{
+                            flexShrink: 0, width: 22, height: 22, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: answers[q] ? '#dcfce7' : '#fee2e2',
+                            fontSize: 13, fontWeight: 800,
+                            color: answers[q] ? '#16a34a' : '#ef4444',
+                          }}>
+                            {answers[q] ? '✓' : '✗'}
+                          </span>
+                          <span style={{ fontSize: 13, color: '#334155', lineHeight: 1.3 }}>{q}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Comment */}
+                  {ins.comment && (
+                    <div style={{ padding: '0 18px 14px', fontSize: 13, color: '#64748b', fontStyle: 'italic', lineHeight: 1.5 }}>
+                      "{ins.comment}"
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -1466,14 +1620,14 @@ function PromiseDetailView({ promise, school, onBack, onInspect }: {
                   {/* Circle */}
                   <div style={{
                     width: 40, height: 40, borderRadius: '50%', flexShrink: 0, zIndex: 1,
-                    background: isDone ? 'linear-gradient(135deg, #7cee2b, #5bc91e)'
-                      : isCurrent ? 'linear-gradient(135deg, #0d1b2e, #1a2f4a)'
-                      : '#f1f5f9',
-                    border: isActive ? '3px solid #7cee2b' : isDone ? '3px solid #5bc91e' : '2px solid #e2e8f0',
-                    boxShadow: isActive ? '0 0 0 4px rgba(124,238,43,0.2)' : 'none',
+                    background: isDone ? 'linear-gradient(135deg, #7cee2b, #5bc91e)' : '#fff',
+                    border: isActive && isCurrent ? '3px solid #7cee2b'
+                      : isDone ? '3px solid #5bc91e'
+                      : '2px solid #e2e8f0',
+                    boxShadow: isActive && isCurrent ? '0 0 0 4px rgba(124,238,43,0.2)' : 'none',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     transition: 'all 0.2s',
-                    color: isDone ? '#182210' : isCurrent ? '#7cee2b' : '#94a3b8',
+                    color: isDone ? '#182210' : isCurrent ? '#7cee2b' : '#cbd5e1',
                   }}>
                     {isDone ? <CheckCheck size={16} color="#182210" /> : <step.Icon size={16} />}
                   </div>
@@ -1513,9 +1667,10 @@ function PromiseDetailView({ promise, school, onBack, onInspect }: {
           }}>
             <div style={{
               width: 48, height: 48, borderRadius: 14, flexShrink: 0,
-              background: activeIdx <= currentIdx ? 'linear-gradient(135deg, #0d1b2e, #1e3a5f)' : '#f1f5f9',
+              background: activeIdx <= currentIdx ? 'linear-gradient(135deg, #d4fbb0, #e8fcd8)' : '#f1f5f9',
+              border: activeIdx <= currentIdx ? '1.5px solid #bbf7d0' : 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: activeIdx <= currentIdx ? '#7cee2b' : '#94a3b8',
+              color: activeIdx <= currentIdx ? '#16a34a' : '#94a3b8',
             }}>
               <activeStep.Icon size={22} />
             </div>
@@ -1567,8 +1722,8 @@ function PromiseDetailView({ promise, school, onBack, onInspect }: {
               </div>
             )}
 
-            {/* Photos */}
-            {photos.length > 0 && (
+            {/* Photos — only on step 0 (Создана) */}
+            {activeIdx === 0 && photos.length > 0 && (
               <div>
                 <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>Фото ({photos.length})</div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -2200,6 +2355,337 @@ function InspectionView({ school, promiseId, onCancel, onDone }: {
         </div>
       </div>
     </FadeIn>
+  );
+}
+
+// ─── CAMERA INSPECTION MODAL ─────────────────────────────────────────────────
+
+function CameraInspectionModal({ school, promise, userId, onClose, onDone }: {
+  school: School;
+  promise: SchoolPromise | undefined;
+  userId: string;
+  onClose: () => void;
+  onDone: (pts: number) => void;
+}) {
+  type Phase = 'camera' | 'preview' | 'checklist' | 'analyzing' | 'done';
+  const [phase, setPhase] = useState<Phase>('camera');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [currentPreview, setCurrentPreview] = useState<string | null>(null);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const checklist: string[] = Array.isArray(promise?.checklist) && promise!.checklist.length > 0
+    ? promise!.checklist as string[]
+    : ['Работы выполнены?', 'Соответствует тендеру?', 'Доступно для учеников?'];
+
+  const [answers, setAnswers] = useState<Record<string, boolean | null>>(
+    () => Object.fromEntries(checklist.map(q => [q, null]))
+  );
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisStep, setAnalysisStep] = useState(0);
+  const [earnedPoints, setEarnedPoints] = useState(0);
+
+  const ANALYSIS_STEPS = [
+    'Анализ метаданных фото...',
+    'Проверка геолокации...',
+    'Сравнение с камерами наблюдения...',
+    'Оценка качества выполнения...',
+    'Формирование результата...',
+  ];
+
+  const startCamera = useCallback(async (facing: 'user' | 'environment') => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    setCameraError(null);
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      streamRef.current = s;
+      if (videoRef.current) {
+        videoRef.current.srcObject = s;
+        videoRef.current.play().catch(() => {});
+      }
+    } catch {
+      setCameraError('Нет доступа к камере. Разрешите доступ в настройках браузера.');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (phase === 'camera') startCamera(facingMode);
+    return () => {};
+  }, [phase, facingMode, startCamera]);
+
+  useEffect(() => {
+    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
+  }, []);
+
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    if (facingMode === 'user') { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, 0, 0);
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    setCurrentPreview(canvas.toDataURL('image/jpeg', 0.85));
+    setPhase('preview');
+  };
+
+  const acceptPhoto = () => {
+    if (!currentPreview) return;
+    const next = [...photos, currentPreview];
+    setPhotos(next);
+    setCurrentPreview(null);
+    if (next.length >= 3) { setPhase('checklist'); }
+    else { setPhase('camera'); }
+  };
+
+  const retakePhoto = () => { setCurrentPreview(null); setPhase('camera'); };
+
+  const goToChecklist = () => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    setPhase('checklist');
+  };
+
+  const startAnalysis = () => {
+    setPhase('analyzing');
+    setAnalysisProgress(0);
+    setAnalysisStep(0);
+    let step = 0;
+    const stepInt = setInterval(() => { step++; setAnalysisStep(Math.min(step, ANALYSIS_STEPS.length - 1)); }, 900);
+    let prog = 0;
+    const progInt = setInterval(() => {
+      prog += Math.random() * 8 + 4;
+      if (prog >= 100) {
+        prog = 100;
+        clearInterval(progInt);
+        clearInterval(stepInt);
+        setTimeout(finishAnalysis, 400);
+      }
+      setAnalysisProgress(Math.min(prog, 100));
+    }, 180);
+  };
+
+  const finishAnalysis = async () => {
+    try {
+      const photoFiles = await Promise.all(photos.map(async (dataUrl, i) => {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        return new File([blob], `photo_${i + 1}.jpg`, { type: 'image/jpeg' });
+      }));
+      const result = await api.submitInspection({
+        school_id: school.id,
+        promise_id: promise?.id,
+        checklist_answers: Object.fromEntries(
+          Object.entries(answers).map(([k, v]) => [k, v ?? false])
+        ) as Record<string, boolean>,
+        photos: photoFiles,
+      }, userId);
+      setEarnedPoints(result.points_awarded || 50);
+    } catch { setEarnedPoints(50); }
+    setPhase('done');
+  };
+
+  const overlayStyle: React.CSSProperties = {
+    position: 'fixed', inset: 0, zIndex: 9999,
+    background: '#000', display: 'flex', flexDirection: 'column',
+  };
+
+  return ReactDOM.createPortal(
+    <div style={overlayStyle}>
+
+      {/* ── CAMERA PHASE ── */}
+      {phase === 'camera' && (
+        <>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(to bottom, rgba(0,0,0,0.7), transparent)' }}>
+            <button onClick={onClose} style={{ color: '#fff', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600 }}>
+              <X size={16} /> Закрыть
+            </button>
+            <div style={{ color: '#fff', fontSize: 15, fontWeight: 700, background: 'rgba(0,0,0,0.4)', padding: '6px 16px', borderRadius: 20 }}>
+              {photos.length + 1} / 3
+            </div>
+            <button
+              onClick={() => setFacingMode(f => f === 'environment' ? 'user' : 'environment')}
+              style={{ color: '#fff', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}
+            >
+              ↺ Камера
+            </button>
+          </div>
+
+          {cameraError ? (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', padding: 32, textAlign: 'center', fontSize: 15, lineHeight: 1.6 }}>
+              {cameraError}
+            </div>
+          ) : (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{ width: '100%', height: '100%', objectFit: 'cover', transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+            />
+          )}
+
+          {/* Thumbnails row */}
+          {photos.length > 0 && (
+            <div style={{ position: 'absolute', bottom: 160, left: 20, display: 'flex', gap: 8 }}>
+              {photos.map((p, i) => (
+                <img key={i} src={p} style={{ width: 52, height: 52, borderRadius: 10, objectFit: 'cover', border: '2.5px solid #fff' }} />
+              ))}
+            </div>
+          )}
+
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '24px 24px 52px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 32, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
+            {photos.length > 0 ? (
+              <button onClick={goToChecklist} style={{ color: '#fff', background: 'rgba(255,255,255,0.15)', border: '1.5px solid rgba(255,255,255,0.35)', borderRadius: 14, padding: '12px 22px', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+                Далее →
+              </button>
+            ) : <div style={{ width: 100 }} />}
+
+            <button
+              onClick={capturePhoto}
+              style={{ width: 76, height: 76, borderRadius: '50%', background: '#fff', border: '5px solid rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 0 5px rgba(255,255,255,0.15)', flexShrink: 0 }}
+            >
+              <CameraIcon size={30} color="#1a1a1a" />
+            </button>
+
+            <div style={{ width: 100 }} />
+          </div>
+        </>
+      )}
+
+      {/* ── PREVIEW PHASE ── */}
+      {phase === 'preview' && currentPreview && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ flexShrink: 0, padding: '18px 20px', background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ color: '#fff', fontWeight: 700, fontSize: 17 }}>Фото {photos.length + 1}</span>
+            <span style={{ color: '#94a3b8', fontSize: 13 }}>{photos.length + 1} из 3 максимум</span>
+          </div>
+          <img src={currentPreview} alt="" style={{ flex: 1, objectFit: 'contain', background: '#000', minHeight: 0, display: 'block' }} />
+          <div style={{ flexShrink: 0, padding: '20px 20px 48px', background: '#111', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button onClick={retakePhoto} style={{ flex: 1, padding: '14px', borderRadius: 14, background: 'rgba(255,255,255,0.1)', border: '1.5px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
+                Переснять
+              </button>
+              <button onClick={acceptPhoto} style={{ flex: 1, padding: '14px', borderRadius: 14, background: '#16a34a', border: 'none', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
+                {photos.length + 1 >= 3 ? 'Готово →' : 'Ещё фото →'}
+              </button>
+            </div>
+            {photos.length + 1 < 3 && (
+              <button
+                onClick={() => { setPhotos(prev => [...prev, currentPreview!]); setCurrentPreview(null); setPhase('checklist'); }}
+                style={{ padding: '11px', borderRadius: 14, background: 'transparent', border: '1.5px solid rgba(255,255,255,0.2)', color: '#94a3b8', fontSize: 14, cursor: 'pointer' }}
+              >
+                Пропустить к чеклисту →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── CHECKLIST PHASE ── */}
+      {phase === 'checklist' && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8fafb' }}>
+          <div style={{ padding: '20px 20px 16px', background: '#0d1b2e' }}>
+            <div style={{ color: '#fff', fontWeight: 800, fontSize: 18 }}>Отметьте чеклист</div>
+            <div style={{ color: '#86efac', fontSize: 12, marginTop: 3 }}>{photos.length} фото прикреплено</div>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 16px' }}>
+            {photos.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+                {photos.map((p, i) => (
+                  <img key={i} src={p} alt="" style={{ width: 60, height: 60, borderRadius: 10, objectFit: 'cover', border: '2px solid #e2e8f0' }} />
+                ))}
+              </div>
+            )}
+
+            {promise && (
+              <div style={{ background: '#fff', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1.5px solid #e8edf2' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Обращение</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2e' }}>{promise.title}</div>
+              </div>
+            )}
+
+            {checklist.map((q, i) => (
+              <div key={i} style={{ background: '#fff', borderRadius: 14, padding: '16px', marginBottom: 10, border: '1.5px solid #e8edf2', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ flex: 1, fontSize: 14, fontWeight: 500, color: '#0d1b2e', lineHeight: 1.4 }}>{q}</span>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <button
+                    onClick={() => setAnswers(a => ({ ...a, [q]: true }))}
+                    style={{ width: 40, height: 40, borderRadius: 10, background: answers[q] === true ? '#16a34a' : '#f0f4f8', border: `2px solid ${answers[q] === true ? '#16a34a' : '#e2e8f0'}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: answers[q] === true ? '#fff' : '#64748b', fontSize: 18, fontWeight: 700, transition: 'all 0.15s' }}
+                  >✓</button>
+                  <button
+                    onClick={() => setAnswers(a => ({ ...a, [q]: false }))}
+                    style={{ width: 40, height: 40, borderRadius: 10, background: answers[q] === false ? '#ef4444' : '#f0f4f8', border: `2px solid ${answers[q] === false ? '#ef4444' : '#e2e8f0'}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: answers[q] === false ? '#fff' : '#64748b', fontSize: 18, fontWeight: 700, transition: 'all 0.15s' }}
+                  >✗</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding: '16px 20px 48px', background: '#fff', borderTop: '1.5px solid #e8edf2' }}>
+            <button
+              onClick={startAnalysis}
+              style={{ width: '100%', padding: '16px', borderRadius: 14, background: 'linear-gradient(135deg, #16a34a, #22c55e)', border: 'none', color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}
+            >
+              Отправить на проверку ИИ →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── ANALYZING PHASE ── */}
+      {phase === 'analyzing' && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0a1628', color: '#fff', padding: 32, gap: 0 }}>
+          <div className="ai-orb" style={{ width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle at 35% 35%, #4ade80, #16a34a 60%, #0d4a22)', marginBottom: 36 }} />
+          <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 10, textAlign: 'center' }}>ИИ анализирует фото</div>
+          <div style={{ fontSize: 14, color: '#86efac', marginBottom: 36, minHeight: 22, textAlign: 'center' }}>
+            {ANALYSIS_STEPS[analysisStep]}
+          </div>
+          <div style={{ width: '100%', maxWidth: 340, background: 'rgba(255,255,255,0.1)', borderRadius: 10, height: 10, overflow: 'hidden', marginBottom: 14 }}>
+            <div style={{ height: '100%', width: `${analysisProgress}%`, background: 'linear-gradient(90deg, #22c55e, #4ade80)', borderRadius: 10, transition: 'width 0.2s ease' }} />
+          </div>
+          <div style={{ color: '#4ade80', fontSize: 16, fontWeight: 700 }}>{Math.round(analysisProgress)}%</div>
+        </div>
+      )}
+
+      {/* ── DONE PHASE ── */}
+      {phase === 'done' && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f0fdf4', padding: 32 }}>
+          <div style={{ fontSize: 80, marginBottom: 20, lineHeight: 1 }}>✅</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: '#0d1b2e', marginBottom: 10, textAlign: 'center' }}>Проверка принята!</div>
+          <div style={{ fontSize: 14, color: '#64748b', marginBottom: 32, textAlign: 'center', lineHeight: 1.6, maxWidth: 280 }}>
+            Результат будет опубликован через 12–72 часа после анонимной верификации
+          </div>
+          {earnedPoints > 0 && (
+            <div style={{ background: '#fff', borderRadius: 18, padding: '16px 32px', marginBottom: 28, display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 4px 20px rgba(22,163,74,0.15)' }}>
+              <Star size={26} color="#f59e0b" fill="#f59e0b" />
+              <span style={{ fontSize: 22, fontWeight: 800, color: '#0d1b2e' }}>+{earnedPoints} XP</span>
+            </div>
+          )}
+          <button
+            onClick={() => onDone(earnedPoints)}
+            style={{ padding: '16px 52px', borderRadius: 14, background: 'linear-gradient(135deg, #16a34a, #22c55e)', border: 'none', color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(22,163,74,0.3)' }}
+          >
+            Готово
+          </button>
+        </div>
+      )}
+
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+    </div>,
+    document.body
   );
 }
 

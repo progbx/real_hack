@@ -65,12 +65,13 @@ async def submit_inspection(
         inspection_id = str(uuid.uuid4())
         cur.execute("""
             INSERT INTO inspections
-            (id, school_id, promise_id, user_id, checklist_answers, comment, status, points_awarded, publish_at)
-            VALUES (%s, %s, %s, %s, %s, %s, 'processing', %s, %s)
+            (id, school_id, promise_id, user_id, checklist_answers, comment, status, points_awarded, publish_at, photos)
+            VALUES (%s, %s, %s, %s, %s, %s, 'processing', %s, %s, %s)
             RETURNING *
         """, (
             inspection_id, school_id, promise_id, user_id,
-            json.dumps(answers_dict), comment, points, publish_at
+            json.dumps(answers_dict), comment, points, publish_at,
+            json.dumps(photo_paths),
         ))
         inspection = dict(cur.fetchone())
 
@@ -108,7 +109,7 @@ async def submit_inspection(
         cur.execute("UPDATE schools SET capture_level = %s WHERE id = %s", (new_capture, school_id))
 
         return {
-            "inspection": {**inspection, "photos": photo_paths},
+            "inspection": inspection,
             "feedback": {
                 "points_awarded": points,
                 "streak_multiplier": streak_mult,

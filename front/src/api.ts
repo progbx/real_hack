@@ -105,6 +105,20 @@ export interface Stats {
   school_statuses: { ok?: number; problem?: number; stale?: number };
 }
 
+export interface Inspection {
+  id: string;
+  school_id: string;
+  promise_id: string | null;
+  user_id: string;
+  checklist_answers: Record<string, boolean>;
+  comment: string | null;
+  status: 'processing' | 'published' | 'rejected';
+  points_awarded: number;
+  photos: string[];
+  created_at: string;
+  publish_at: string;
+}
+
 export interface User {
   id: string;
   uid: number;
@@ -148,6 +162,9 @@ export const api = {
     const qs = params.toString();
     return get<TaskSchool[]>(`/schools/tasks${qs ? '?' + qs : ''}`);
   },
+
+  getInspections: (school_id: string) =>
+    get<Inspection[]>(`/inspections?school_id=${encodeURIComponent(school_id)}`),
 
   getStats: () =>
     get<Stats>('/stats'),
